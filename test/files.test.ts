@@ -258,6 +258,12 @@ describe("file inputs at boot", () => {
     expect(codes(failure(fr.root))).toEqual([["geoip", "file_too_large"]]);
   });
 
+  it("reports a CA bundle with too few certificates as file_malformed", () => {
+    const fr = validRoot();
+    const overrides = { "upstream-ca": caBundleFile({ path: "/etc/gw/ca/bundle.pem", description: "Upstream CAs", minCertificates: 3 }) };
+    expect(codes(failure(fr.root, undefined, overrides))).toEqual([["upstream-ca", "file_malformed"]]);
+  });
+
   it("checks text patterns and CA bundles", () => {
     const fr = validRoot();
     fr.write("/etc/gw/license/license.key", "not-a-licence");

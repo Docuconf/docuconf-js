@@ -192,7 +192,7 @@ export function checkCaBundle(pem: string, minCertificates: number, report: Repo
   const certs = parseCertificates(pem, "bundle", report);
   if (!certs) return undefined;
   if (certs.length < minCertificates) {
-    report("certificate_invalid", `holds ${certs.length} certificate(s), needs at least ${minCertificates}`);
+    report("file_malformed", `holds ${certs.length} certificate(s), needs at least ${minCertificates}`);
     return undefined;
   }
   const bundle = {} as CaBundle;
