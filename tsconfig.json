@@ -21,5 +21,7 @@
     "outDir": "dist",
     "rootDir": "."
   },
-  "include": ["src", "test", "examples", "vitest.config.ts"]
+  "include": ["src", "test", "examples", "vitest.config.ts"],
+  // Written for the jiti fallback: extensionless imports and an enum.
+  "exclude": ["test/fixtures/jiti-*.ts"]
 }
