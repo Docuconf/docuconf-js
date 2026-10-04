@@ -114,6 +114,19 @@ describe("declaration checks", () => {
     expect(getDeclaration(env).warnings).toEqual(warnings);
   });
 
+  it("warns when z.url({ protocol }) restricts schemes the contract cannot carry", () => {
+    const warnings: string[] = [];
+    createEnv({
+      ...quiet,
+      onWarning: (w) => warnings.push(w),
+      server: {
+        A: z.url({ protocol: /^postgres$/ }).describe("Database URL"),
+        B: z.url().optional().describe("Plain URL, any scheme"),
+      },
+    });
+    expect(warnings).toEqual(["A: z.url({ protocol }) cannot be exported; use url({ schemes }) from @docuconf/t3"]);
+  });
+
   it("caps int bounds at Number.MAX_SAFE_INTEGER", () => {
     const env = createEnv({ ...quiet, name: "x", server: { N: z.coerce.number().int().describe("Some integer") } });
     expect(getDeclaration(env).vars.get("N")!.contract).toMatchObject({ min: -Number.MAX_SAFE_INTEGER, max: Number.MAX_SAFE_INTEGER });

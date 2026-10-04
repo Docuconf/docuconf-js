@@ -199,7 +199,9 @@ export function describeVar(
     case "url": {
       const m = meta as Extract<DocuconfTypeMeta, { type: "url" }> | undefined;
       if (m?.schemes) c["schemes"] = m.schemes;
-      else if (!m) warnings.push(`${name}: use url({ schemes }) from @docuconf/t3 to export allowed schemes`);
+      else if (!m && zodUrlProtocol(schema)) {
+        warnings.push(`${name}: z.url({ protocol }) cannot be exported; use url({ schemes }) from @docuconf/t3`);
+      }
       break;
     }
     case "enum": {
@@ -247,6 +249,16 @@ export function describeVar(
   }
 
   return decl;
+}
+
+/** Whether a Zod schema (through wrappers) is z.url() with a `protocol` restriction. */
+function zodUrlProtocol(schema: unknown, depth = 0): boolean {
+  const def = (schema as { _zod?: { def?: Record<string, unknown> } })?._zod?.def;
+  if (!def || depth > 10) return false;
+  if (def["protocol"] !== undefined) return true;
+  const checks = (def["checks"] as Array<{ _zod?: { def?: Record<string, unknown> } }> | undefined) ?? [];
+  if (checks.some((c) => c._zod?.def?.["protocol"] !== undefined)) return true;
+  return ["innerType", "in", "schema"].some((k) => def[k] !== undefined && zodUrlProtocol(def[k], depth + 1));
 }
 
 function contractDefault(type: VarType, v: unknown): unknown {
