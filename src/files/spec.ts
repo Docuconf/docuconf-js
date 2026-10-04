@@ -72,8 +72,8 @@ export interface TlsMaterial {
   readonly ca: string | undefined;
   /** The parsed leaf certificate. */
   readonly certificate: X509Certificate;
-  /** A secure context for the current key pair. */
-  secureContext(): SecureContext;
+  /** A secure context for the current key pair (cached until the next reload). */
+  getSecureContext(): SecureContext;
   /**
    * Keeps `server` serving the current certificate: calls
    * `server.setSecureContext()` on every reload. Returns an unsubscribe.

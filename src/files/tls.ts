@@ -145,7 +145,7 @@ export class TlsMaterialHolder {
       key: { enumerable: true, get: () => self.parts.key },
       ca: { enumerable: true, get: () => self.parts.ca },
       certificate: { enumerable: false, get: () => self.parts.certificate },
-      secureContext: { enumerable: false, value: () => self.secureContext() },
+      getSecureContext: { enumerable: false, value: () => self.secureContext() },
       attach: {
         enumerable: false,
         value: (server: { setSecureContext(o: object): void }) =>

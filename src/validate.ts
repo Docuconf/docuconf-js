@@ -37,6 +37,8 @@ interface ZodLikeIssue extends StandardSchemaV1.Issue {
 export function issueCode(issue: ZodLikeIssue, decl: Pick<VarDecl, "type">): ErrorCode {
   const own = issue.params?.docuconfCode;
   if (own) return own;
+  // Inside a json variable's value, any problem is a schema mismatch.
+  if (decl.type === "json" && (issue.path?.length ?? 0) > 0) return "schema_mismatch";
   switch (issue.code) {
     case "too_small":
       return issue.origin === "array" || issue.origin === "set" ? "too_few_items" : "out_of_range";
@@ -51,7 +53,7 @@ export function issueCode(issue: ZodLikeIssue, decl: Pick<VarDecl, "type">): Err
     case "invalid_value":
       return decl.type === "enum" ? "not_in_enum" : "invalid_type";
     default:
-      return decl.type === "json" && (issue.path?.length ?? 0) > 0 ? "schema_mismatch" : "invalid_type";
+      return "invalid_type";
   }
 }
 

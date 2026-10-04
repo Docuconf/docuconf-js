@@ -19,6 +19,8 @@ function isLoaderError(e: unknown): boolean {
   return (code !== undefined && LOADER_ERRORS.has(code)) || e instanceof SyntaxError;
 }
 
+let generation = 0;
+
 /**
  * Imports a module. Node 22.18+ strips TypeScript types natively, which
  * handles `.ts` files whose imports name their extensions. Anything else
@@ -27,7 +29,9 @@ function isLoaderError(e: unknown): boolean {
 export async function importModule(file: string): Promise<unknown> {
   const abs = resolve(file);
   try {
-    return await import(pathToFileURL(abs).href);
+    // A fresh URL per call, so a second export in one process re-runs the
+    // module's createEnv call instead of reusing the cached module.
+    return await import(`${pathToFileURL(abs).href}?docuconf-export=${++generation}`);
   } catch (e) {
     if (!isLoaderError(e)) throw e;
   }
