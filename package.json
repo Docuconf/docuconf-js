@@ -1,0 +1,65 @@
+{
+  "name": "@docuconf/t3",
+  "version": "0.1.0",
+  "description": "Typed configuration contracts for T3 Env: export your env schema as a docuconf CUE contract and validate env vars and files at boot.",
+  "keywords": [
+    "env",
+    "t3-env",
+    "zod",
+    "configuration",
+    "kubernetes",
+    "cue",
+    "contract"
+  ],
+  "homepage": "https://github.com/docuconf/docuconf-js#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/docuconf/docuconf-js.git"
+  },
+  "bugs": "https://github.com/docuconf/docuconf-js/issues",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "docuconf": "./dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && chmod +x dist/bin.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "peerDependencies": {
+    "@t3-oss/env-core": ">=0.13.0 <1",
+    "zod": "^4.1.0"
+  },
+  "dependencies": {
+    "jiti": "^2.7.0",
+    "yaml": "^2.9.1"
+  },
+  "devDependencies": {
+    "@t3-oss/env-core": "^0.13.11",
+    "@types/node": "^22.20.5",
+    "@types/node-forge": "^1.3.14",
+    "node-forge": "^1.4.0",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3",
+    "zod": "^4.6.5"
+  }
+}
