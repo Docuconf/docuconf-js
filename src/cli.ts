@@ -5,7 +5,7 @@ import { DocuconfDeclarationError } from "./violations.ts";
 
 const USAGE = `Usage: docuconf export <module> [--out contract.cue] [--name service] [--app-version v] [--package pkg]
 
-Loads <module> (.ts, .mts, .js or .mjs) in export mode, where createEnv from
+Loads <module> (.ts, .mts, .cts, .js, .mjs or .cjs) in export mode, where createEnv from
 @docuconf/t3 skips validation, and writes its contract as CUE.
 
   --out, -o       file to write (default: stdout)

@@ -1,0 +1,57 @@
+name: Release
+
+# Push a tag such as v0.1.0 (matching package.json) to publish to npm.
+# Uses npm trusted publishing (OIDC): no npm token is stored, and npm adds
+# a provenance attestation linking the package to this workflow run.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: docuconf/docuconf-go
+          path: docuconf-go
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - run: go install cuelang.org/go/cmd/cue@v0.17.1
+
+      - name: Check the tag matches package.json
+        run: |
+          version=$(node -p "require('./package.json').version")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $version" >&2
+            exit 1
+          fi
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@^11.5.1
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+        env:
+          DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
+          DOCUCONF_REQUIRE_VET: "1"
+      - run: npm run build
+      - run: npm run smoke
+
+      - name: Publish
+        run: npm publish --access public ${{ contains(github.ref_name, '-') && '--tag next' || '' }}

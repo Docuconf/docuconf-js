@@ -82,6 +82,32 @@ The module is imported in **export mode**: `createEnv` records the declaration a
 
 TypeScript modules load with Node's built-in type stripping when their relative imports name the `.ts` extension; otherwise (extensionless imports, path aliases, enums) the CLI falls back to [jiti](https://github.com/unjs/jiti).
 
+### Plain JavaScript
+
+TypeScript is optional. The package is ESM and works the same from `.mjs` files, and from CommonJS (`.cjs`, or `.js` without `"type": "module"`) through `require()`, which Node 22.12+ supports for ES modules:
+
+```js
+// env.mjs
+import { z } from "zod";
+import { createEnv, secret, url } from "@docuconf/t3";
+
+export const env = createEnv({
+  name: "orders-api",
+  server: {
+    DATABASE_URL: secret(url({ schemes: ["postgres"] })).describe("Primary Postgres connection string"),
+    PORT: z.coerce.number().int().min(1).max(65535).default(8080).describe("HTTP listen port"),
+  },
+  runtimeEnv: process.env,
+});
+```
+
+```js
+// env.cjs
+const { createEnv, secret, url } = require("@docuconf/t3");
+```
+
+Export them the same way: `npx docuconf export env.mjs` or `npx docuconf export env.cjs`. `npm run smoke` checks all of this against the packed package in a clean, non-TypeScript project.
+
 The output is plain CUE data that unifies with the meta-schema's `contract.#Contract`, with variables and files sorted by name:
 
 ```cue
@@ -203,7 +229,10 @@ npm ci
 npm run typecheck
 npm test        # vets exported contracts with cue when it is installed
 npm run build
+npm run smoke   # installs the packed package into a clean project and uses it from .mjs and .cjs
 ```
+
+Releases are published to npm from CI; see [RELEASING.md](RELEASING.md).
 
 The export test runs `cue vet -c` against the meta-schema in a checkout of [docuconf-go](https://github.com/docuconf/docuconf-go) (default `../docuconf-go/spec/cue`, or `DOCUCONF_SPEC_CUE`), using `cue` from `$CUE`, `~/go/bin/cue` or `PATH`. It is skipped when either is missing, unless `DOCUCONF_REQUIRE_VET=1`. Regenerate the golden file with `UPDATE_GOLDEN=1 npm test`.
 

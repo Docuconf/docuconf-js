@@ -55,6 +55,18 @@ describe("export", () => {
     expect(out).toBe(readFileSync(golden, "utf8"));
   });
 
+  it("exports a plain-JavaScript .mjs module", async () => {
+    const { cue: out, warnings } = await exportModule(join(here, "fixtures/plain-env.mjs"));
+    expect(warnings).toEqual([]);
+    expect(out).toContain('name: "plain-js"');
+    expect(out).toContain("DATABASE_URL: {");
+    expect(out).toContain("settings: {");
+    if (canVet) {
+      const result = vet(out);
+      expect(result.ok, result.output).toBe(true);
+    }
+  });
+
   it("is deterministic", async () => {
     const a = await exportModule(fixture);
     const b = await exportModule(fixture);
