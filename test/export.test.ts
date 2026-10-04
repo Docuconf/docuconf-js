@@ -39,6 +39,12 @@ function vet(contract: string): { ok: boolean; output: string } {
 }
 
 describe("export", () => {
+  // CI sets DOCUCONF_REQUIRE_VET=1 so a missing cue binary or spec checkout fails instead of skipping.
+  it.runIf(process.env["DOCUCONF_REQUIRE_VET"] === "1")("has cue and the meta-schema available", () => {
+    expect(cue, "cue binary").toBeDefined();
+    expect(existsSync(join(specCue, "contract")), `meta-schema at ${specCue}`).toBe(true);
+  });
+
   it("matches the golden file", async () => {
     const { cue: out, warnings } = await exportModule(fixture);
     expect(warnings).toEqual([]);
@@ -60,6 +66,13 @@ describe("export", () => {
     const r = vet(out);
     expect(r.output).toBe("");
     expect(r.ok).toBe(true);
+  });
+
+  it.skipIf(!canVet)("exports the example app to a valid, up-to-date contract", async () => {
+    const example = join(here, "../examples/basic");
+    const { cue: out } = await exportModule(join(example, "env.ts"));
+    expect(out).toBe(readFileSync(join(example, "contract.cue"), "utf8"));
+    expect(vet(out).output).toBe("");
   });
 
   it.skipIf(!canVet)("is already cue fmt formatted", () => {
