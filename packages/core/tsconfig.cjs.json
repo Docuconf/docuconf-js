@@ -1,0 +1,14 @@
+{
+  // The CommonJS build, for require() consumers that do not load ES modules
+  // (Jest, older toolchains). dist/cjs/package.json marks it "type": "commonjs".
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node10",
+    "verbatimModuleSyntax": false,
+    "customConditions": null,
+    "outDir": "dist/cjs"
+  },
+  // The export loader uses dynamic import(), which only the ESM build keeps.
+  "exclude": ["src/loader.ts"]
+}

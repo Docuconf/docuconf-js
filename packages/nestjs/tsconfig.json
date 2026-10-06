@@ -1,0 +1,14 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // What NestJS projects compile with: class-validator and Nest's DI use
+    // legacy decorators and their emitted design types.
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    // Tests and the example are written like Nest apps: enums, parameter properties.
+    // The package sources stay erasable (tsconfig.build.json).
+    "erasableSyntaxOnly": false
+  },
+  "include": ["src", "test", "../../examples/nestjs/src", "vitest.config.ts"]
+}

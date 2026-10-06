@@ -1,0 +1,83 @@
+{
+  "name": "@docuconf/nestjs",
+  "version": "0.1.0",
+  "description": "Typed configuration contracts for NestJS: export your @nestjs/config class-validator schema as a docuconf CUE contract and validate env vars and files at boot.",
+  "keywords": [
+    "nestjs",
+    "@nestjs/config",
+    "class-validator",
+    "env",
+    "configuration",
+    "kubernetes",
+    "cue",
+    "contract"
+  ],
+  "homepage": "https://github.com/docuconf/docuconf-js/tree/main/packages/nestjs#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/docuconf/docuconf-js.git",
+    "directory": "packages/nestjs"
+  },
+  "bugs": "https://github.com/docuconf/docuconf-js/issues",
+  "type": "module",
+  "exports": {
+    ".": {
+      "@docuconf/source": "./src/index.ts",
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/cjs/index.js",
+  "types": "./dist/cjs/index.d.ts",
+  "bin": {
+    "docuconf-nestjs": "dist/esm/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "sideEffects": false,
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc -p tsconfig.cjs.json && echo '{ \"type\": \"commonjs\" }' > dist/cjs/package.json && chmod +x dist/esm/bin.js",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "vitest run",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build",
+    "smoke": "bash scripts/smoke-consumer.sh"
+  },
+  "peerDependencies": {
+    "@nestjs/config": "^4.0.0 || ^12.0.0",
+    "class-transformer": ">=0.5.0",
+    "class-validator": ">=0.14.0"
+  },
+  "dependencies": {
+    "@docuconf/core": "^0.1.0"
+  },
+  "devDependencies": {
+    "@nestjs/common": "^12.1.2",
+    "@nestjs/config": "^12.0.1",
+    "@nestjs/core": "^12.1.2",
+    "@nestjs/platform-express": "^12.1.2",
+    "@nestjs/testing": "^12.1.2",
+    "@types/node": "^22.20.5",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "typescript": "^5.9.3",
+    "vitest": "^5.0.3",
+    "zod": "^4.6.5"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
