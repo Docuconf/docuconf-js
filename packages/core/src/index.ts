@@ -16,9 +16,11 @@ export { cleanPattern, nonRe2Feature } from "./re2.ts";
 export {
   ENV_NAME,
   GENERIC,
+  INJECTOR_PREFIXES,
   VarReport,
   checkVarName,
   contractDefault,
+  injectorScheme,
   intBounds,
   precheckVar,
   preprocess,

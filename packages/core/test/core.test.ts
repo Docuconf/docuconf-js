@@ -4,6 +4,7 @@ import {
   VarReport,
   closeSchema,
   formatDuration,
+  injectorScheme,
   intBounds,
   nonRe2Feature,
   parseDuration,
@@ -12,7 +13,38 @@ import {
   type VarBase,
 } from "../src/index.ts";
 
+const secretUrl: VarBase = { name: "DATABASE_URL", type: "url", secret: true, required: true, contract: {} };
 const port: VarBase = { name: "PORT", type: "int", secret: false, required: false, contract: {} };
+
+describe("injector references (SPEC §4.5.1)", () => {
+  it("recognises vault:, op:// and ref+ and names only the scheme", () => {
+    expect(injectorScheme("vault:secret/data/db#url")).toBe("vault:");
+    expect(injectorScheme("op://vault/item/field")).toBe("op://");
+    expect(injectorScheme("ref+vault://secret/db#/url")).toBe("ref+vault");
+    expect(injectorScheme("ref+not a backend")).toBe("ref+");
+    expect(injectorScheme("postgres://db/app")).toBeUndefined();
+    expect(injectorScheme("Vault:x")).toBeUndefined();
+  });
+
+  it("fails a secret with invalid_type and a message without the value", () => {
+    const report = new VarReport(secretUrl);
+    const r = precheckVar(secretUrl, "vault:secret/data/hunter2#url", report);
+    expect(r.ok).toBe(false);
+    expect(report.violations).toEqual([
+      {
+        input: "DATABASE_URL",
+        kind: "var",
+        code: "invalid_type",
+        message: "holds an unresolved vault: reference; the injector that should resolve it did not run",
+      },
+    ]);
+  });
+
+  it("leaves non-secrets alone", () => {
+    const decl: VarBase = { ...secretUrl, secret: false, type: "string" };
+    expect(precheckVar(decl, "vault:x", new VarReport(decl))).toEqual({ value: "vault:x", ok: true });
+  });
+});
 
 describe("precheckVar", () => {
   it("treats empty as unset except for strings, and checks number syntax", () => {

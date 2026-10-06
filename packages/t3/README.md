@@ -213,6 +213,20 @@ When `pathEnv` is set and present in the environment, the file is read from that
 
 T3's `skipValidation` still works, for builds and tests that run without configuration.
 
+## Injected secrets
+
+Platforms that supply values when the container starts, such as Bank-Vaults' `vault-env`, `op run` or an operator (SPEC §4.5.1), need nothing special: `createEnv` reads `process.env` as it is when the process starts, after injection, and validates injected values like any other. It never resolves references itself.
+
+If the injector did not run, a secret variable still holds the raw reference. A secret whose value starts with `vault:`, `op://` or `ref+` fails with `invalid_type`, naming the reference scheme but never the value:
+
+```
+DATABASE_URL [invalid_type]: holds an unresolved vault: reference; the injector that should resolve it did not run
+```
+
+## Config-file overlays
+
+Not supported, by design. Node and T3 Env do not layer configuration files (base, profile, overlay, environment), so there is nothing for a platform-mounted overlay (SPEC §4.7) to slot into, and this SDK has no overlay API. Contracts it exports never declare `overlays`. Configure the app through variables and file inputs.
+
 ## Programmatic API
 
 ```ts

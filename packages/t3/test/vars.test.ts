@@ -132,6 +132,38 @@ describe("boot validation of variables", () => {
     expect(failure({ ...good, PORT: "70000" }).message).toContain('"70000"');
   });
 
+  it("reports a secret still holding an unresolved injector reference, without printing it", () => {
+    const cases: Array<[string, string]> = [
+      ["vault:secret/data/orders#DATABASE_URL", "vault:"],
+      ["op://prod-vault/orders-db/url", "op://"],
+      ["ref+awssecrets://orders/db#/url", "ref+awssecrets"],
+    ];
+    for (const [ref, scheme] of cases) {
+      const log = join(mkdtempSync(join(tmpdir(), "docuconf-tl-")), "termination-log");
+      let e: unknown;
+      try {
+        createEnv({ server, runtimeEnv: { ...good, DATABASE_URL: ref }, terminationLog: log, onWarning: () => {} });
+      } catch (err) {
+        e = err;
+      }
+      expect(e).toBeInstanceOf(DocuconfValidationError);
+      const err = e as DocuconfValidationError;
+      expect(codes(err)).toEqual([["DATABASE_URL", "invalid_type"]]);
+      expect(err.violations[0]!.message).toBe(
+        `holds an unresolved ${scheme} reference; the injector that should resolve it did not run`,
+      );
+      const path = ref.slice(ref.indexOf(scheme.endsWith(":") ? ":" : "/") + 1);
+      const logged = readFileSync(log, "utf8");
+      expect(logged).toContain(`DATABASE_URL [invalid_type]: holds an unresolved ${scheme} reference`);
+      for (const text of [err.message, JSON.stringify(err.violations), logged]) {
+        expect(text).not.toContain(ref);
+        expect(text).not.toContain(path);
+      }
+    }
+    // Only secrets: a non-secret string may legitimately start with "vault:".
+    expect(load({ ...good, GREETING: "vault:hello" }).GREETING).toBe("vault:hello");
+  });
+
   it("writes violations to the termination log", () => {
     const path = join(mkdtempSync(join(tmpdir(), "docuconf-tl-")), "termination-log");
     expect(() => createEnv({ server, runtimeEnv: { API_TOKEN: "x" }, terminationLog: path, onWarning: () => {} })).toThrow(

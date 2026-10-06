@@ -50,6 +50,28 @@ export const GENERIC: Record<ErrorCode, string> = {
   keystore_unreadable: "keystore cannot be opened",
 };
 
+/**
+ * Value prefixes of the references injectors resolve (SPEC §4.5.1):
+ * Bank-Vaults (`vault:`), 1Password `op run` (`op://`) and vals (`ref+`).
+ */
+export const INJECTOR_PREFIXES = ["vault:", "op://", "ref+"] as const;
+
+/**
+ * The scheme of an injector reference that was never resolved, such as
+ * `vault:` or `ref+awssecrets`, or undefined when `raw` is not one. The
+ * scheme is safe to print; the rest of the reference is not.
+ */
+export function injectorScheme(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  if (raw.startsWith("vault:")) return "vault:";
+  if (raw.startsWith("op://")) return "op://";
+  if (raw.startsWith("ref+")) {
+    const backend = /^ref\+([a-z0-9]{1,32}):\/\//.exec(raw)?.[1];
+    return backend ? `ref+${backend}` : "ref+";
+  }
+  return undefined;
+}
+
 /** Collects one variable's violations, replacing messages with GENERIC ones for secrets. */
 export class VarReport {
   readonly violations: Violation[] = [];
@@ -84,13 +106,21 @@ export function preprocess(decl: Pick<VarBase, "type">, raw: unknown): unknown {
 
 /**
  * The checks every SDK makes on a raw value before its host library sees
- * it: empty means unset, and numbers use strict base-10 syntax (host coercion accepts
+ * it: empty means unset, a secret must not hold an unresolved injector
+ * reference, and numbers use strict base-10 syntax (host coercion accepts
  * " 42", "0x2A" and "1e3"). Returns the value to hand on, or `ok: false`
  * after reporting a violation.
  */
 export function precheckVar(decl: VarBase, raw: unknown, report: VarReport): { value: unknown; ok: boolean } {
   const value = preprocess(decl, raw);
   if (typeof value !== "string") return { value, ok: true };
+  if (decl.secret) {
+    const scheme = injectorScheme(value);
+    if (scheme !== undefined) {
+      report.add("invalid_type", `holds an unresolved ${scheme} reference; the injector that should resolve it did not run`, true);
+      return { value: undefined, ok: false };
+    }
+  }
   const got = report.got(value);
   if (decl.type === "int") {
     if (!INT.test(value)) {
