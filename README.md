@@ -47,4 +47,4 @@ Releases are published to npm from CI, one package per tag; see [RELEASING.md](R
 
 ## Licence
 
-The licence is pending and will be added before the first release.
+[MIT](LICENSE).

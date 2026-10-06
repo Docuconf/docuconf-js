@@ -11,6 +11,7 @@
     "cue",
     "contract"
   ],
+  "license": "MIT",
   "homepage": "https://github.com/docuconf/docuconf-js/tree/main/packages/t3#readme",
   "repository": {
     "type": "git",

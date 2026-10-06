@@ -12,5 +12,5 @@ Apps do not use it directly. Use the SDK for your configuration library:
 Its API follows what those SDKs need and may change in any minor version. It ships ES module and CommonJS builds; the
 `@docuconf/core/loader` entry point (module loading for the export CLIs) is ES module only.
 
-Part of [docuconf-js](https://github.com/docuconf/docuconf-js). The licence is pending and will be added before the
-first release.
+Part of [docuconf-js](https://github.com/docuconf/docuconf-js). Licensed under
+[MIT](https://github.com/docuconf/docuconf-js/blob/main/LICENSE).

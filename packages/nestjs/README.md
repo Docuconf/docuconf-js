@@ -224,4 +224,4 @@ Releases are published to npm from CI; see [RELEASING.md](https://github.com/doc
 
 ## Licence
 
-The licence is pending and will be added before the first release.
+[MIT](https://github.com/docuconf/docuconf-js/blob/main/LICENSE).

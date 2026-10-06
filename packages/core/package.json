@@ -9,6 +9,7 @@
     "cue",
     "contract"
   ],
+  "license": "MIT",
   "homepage": "https://github.com/docuconf/docuconf-js/tree/main/packages/core#readme",
   "repository": {
     "type": "git",

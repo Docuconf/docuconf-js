@@ -2,6 +2,7 @@
   "name": "docuconf-js",
   "private": true,
   "description": "docuconf SDKs for JavaScript and TypeScript: @docuconf/t3, @docuconf/nestjs and their shared @docuconf/core.",
+  "license": "MIT",
   "type": "module",
   "workspaces": [
     "packages/core",

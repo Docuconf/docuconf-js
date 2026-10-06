@@ -254,4 +254,4 @@ The export test runs `cue vet -c` against the meta-schema in a checkout of [docu
 
 ## Licence
 
-The licence is pending and will be added before the first release.
+[MIT](https://github.com/docuconf/docuconf-js/blob/main/LICENSE).
