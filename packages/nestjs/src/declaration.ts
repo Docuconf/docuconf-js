@@ -3,7 +3,7 @@ import {
   DocuconfDeclarationError,
   ENV_NAME,
   type FileInput,
-  type VarBase,
+  type ValueDecl,
   type VarType,
   canonicalDuration,
   checkVarName,
@@ -21,21 +21,12 @@ import { type JsonSchemaSource, type PropertyMeta, docuconfMetadata } from "./de
 import { validateEnv } from "./env.ts";
 
 /** A variable read from a class-validator property, plus what the validator needs. */
-export interface NestVarDecl extends VarBase {
+export interface NestVarDecl extends ValueDecl {
   /** The property, which is also the variable name. */
   property: string;
   constraints: Constraint[];
   /** The parsed default (milliseconds for durations), when the variable has one. */
   default: unknown;
-  durationMin?: number;
-  durationMax?: number;
-  /** Lowercase URL schemes. */
-  schemes?: string[];
-  /** List item type. */
-  items?: "string" | "int";
-  /** Bounds on each item of an int list. */
-  itemMin?: number;
-  itemMax?: number;
   jsonSchema?: JsonSchemaSource;
   deprecated?: { message: string; replacedBy?: string };
 }

@@ -1,7 +1,7 @@
 {
   "name": "@docuconf/core",
   "version": "0.1.0",
-  "description": "Shared runtime of the docuconf JavaScript SDKs (@docuconf/t3, @docuconf/nestjs): contract writer, file checks, violations, durations.",
+  "description": "Shared runtime of the docuconf JavaScript SDKs (@docuconf/t3, @docuconf/nestjs): contract writer, file checks, violations, durations, and contract-first validation.",
   "keywords": [
     "docuconf",
     "configuration",

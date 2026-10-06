@@ -1,15 +1,21 @@
 import { describe, expect, it } from "vitest";
 import {
+  DocuconfDeclarationError,
   GENERIC,
   VarReport,
+  checkContract,
   closeSchema,
   formatDuration,
   injectorScheme,
+  loadContract,
   intBounds,
   intItem,
   nonRe2Feature,
+  parseContract,
   parseDuration,
+  parseDurationAs,
   precheckVar,
+  re2RegExp,
   renderContract,
   type VarBase,
 } from "../src/index.ts";
@@ -120,5 +126,91 @@ describe("int list items (SPEC §4.3 itemMin, itemMax)", () => {
       max: Number.MAX_SAFE_INTEGER,
     });
     expect(warnings).toEqual(["IDS: itemMin capped at -Number.MAX_SAFE_INTEGER"]);
+  });
+});
+
+describe("duration encodings (SPEC §5)", () => {
+  it("parses iso8601, seconds and timespan to milliseconds", () => {
+    expect(parseDurationAs("PT90S", "iso8601")).toBe(90_000);
+    expect(parseDurationAs("PT1.5S", "iso8601")).toBe(1500);
+    expect(parseDurationAs("P1DT2H3M4.5S", "iso8601")).toBe(93_784_500);
+    expect(parseDurationAs("pt1m", "iso8601")).toBe(60_000);
+    for (const bad of ["P", "PT", "P1DT", "PT-1S", "P1M", "1m30s", "PT1.5M"]) expect(parseDurationAs(bad, "iso8601")).toBeUndefined();
+    expect(parseDurationAs("90", "seconds")).toBe(90_000);
+    expect(parseDurationAs("0.25", "seconds")).toBe(250);
+    for (const bad of ["90s", "-1", "1e3", ".5", ""]) expect(parseDurationAs(bad, "seconds")).toBeUndefined();
+    expect(parseDurationAs("00:01:30", "timespan")).toBe(90_000);
+    expect(parseDurationAs("1.02:03:04.5", "timespan")).toBe(93_784_500);
+    for (const bad of ["1m30s", "24:00:00", "00:60:00", "01:30", "00:00:00.12345678"]) expect(parseDurationAs(bad, "timespan")).toBeUndefined();
+    expect(formatDuration(parseDurationAs("1.02:03:04.5", "timespan")!)).toBe("26h3m4s500ms");
+  });
+});
+
+describe("re2RegExp", () => {
+  it("compiles RE2 patterns, with a leading flag group, \\A, \\z and \\pL", () => {
+    const re = (p: string) => re2RegExp(p) as RegExp;
+    expect(re("(?i)^abc$").test("ABC")).toBe(true);
+    expect(re("\\Aab\\z").test("ab")).toBe(true);
+    expect(re("\\Aab\\z").test("ab\n")).toBe(false);
+    expect(re("^\\pL+$").test("héllo")).toBe(true);
+    expect(re("[0-9]{3}").test("x999y")).toBe(true);
+    expect(re2RegExp("(?=x)")).toEqual({ problem: "lookahead (?=...) is not RE2" });
+    expect(re2RegExp("(?U)a+")).toMatchObject({ problem: expect.stringMatching(/ungreedy/) });
+  });
+});
+
+describe("contract-first mode (SPEC §11.2 item 11)", () => {
+  const contract = {
+    apiVersion: "docuconf.dev/v1alpha1",
+    kind: "ConfigContract",
+    metadata: { name: "orders", generator: { language: "go", sdk: "docuconf-go", version: "0.1.0" } },
+    vars: {
+      PORT: { type: "int", description: "HTTP listen port", min: 1, max: 65535, default: 8080 },
+      TIMEOUT: { type: "duration", description: "Checkout timeout", encoding: "timespan", default: "30s" },
+      PARTITIONS: { type: "list", description: "Partitions to consume", items: "int", encoding: "indexed", itemMin: 0, itemMax: 31 },
+      DATABASE_URL: { type: "url", description: "Primary database", secret: true, required: true, schemes: ["postgres"] },
+      LIMITS: { type: "json", description: "Rate limits", schema: { type: "object" } },
+    },
+  };
+
+  it("returns typed values, with omitted defaults filled in", () => {
+    const env = loadContract(JSON.stringify(contract), {
+      env: { DATABASE_URL: "postgres://db/app", PARTITIONS__0: "3", PARTITIONS__1: "7", TIMEOUT: "00:01:30", LIMITS: "[1]" },
+      terminationLog: false,
+    });
+    expect(env).toEqual({ PORT: 8080, TIMEOUT: 90_000, PARTITIONS: [3, 7], DATABASE_URL: "postgres://db/app", LIMITS: [1] });
+  });
+
+  it("reports every violation without secret values, and calls validateJson", () => {
+    const { violations } = checkContract(
+      contract,
+      { PORT: "0", PARTITIONS__0: "32", DATABASE_URL: "mysql://u:hunter2@db", LIMITS: "[1]" },
+      { validateJson: (_d, v) => (Array.isArray(v) ? { issues: [{ path: "", message: "must be an object" }] } : { value: v }) },
+    );
+    expect(violations.map((v) => [v.input, v.code])).toEqual([
+      ["PORT", "out_of_range"],
+      ["PARTITIONS", "out_of_range"],
+      ["DATABASE_URL", "invalid_scheme"],
+      ["LIMITS", "schema_mismatch"],
+    ]);
+    expect(JSON.stringify(violations)).not.toContain("hunter2");
+  });
+
+  it("rejects a contract it cannot check", () => {
+    expect(() =>
+      parseContract({ ...contract, vars: { bad: { type: "list", description: "Some tags", items: "string", itemMax: 3 }, X: { type: "money" } } }),
+    ).toThrow(DocuconfDeclarationError);
+    let error: unknown;
+    try {
+      parseContract({ apiVersion: "v2", kind: "ConfigContract", vars: { TAGS: { type: "list", description: "Some tags", items: "string", itemMax: 3 } } });
+    } catch (e) {
+      error = e;
+    }
+    {
+      expect((error as DocuconfDeclarationError).problems).toEqual([
+        'apiVersion must be "docuconf.dev/v1alpha1"',
+        "TAGS: itemMin and itemMax apply to int items only",
+      ]);
+    }
   });
 });

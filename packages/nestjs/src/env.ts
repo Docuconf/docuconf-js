@@ -1,9 +1,8 @@
 import { validateSync } from "class-validator";
-import { type ErrorCode, VarReport, type Violation, intItem, parseDuration, precheckVar } from "@docuconf/core";
+import { type ErrorCode, type JsonCheck, VarReport, type Violation, convertValue, precheckVar } from "@docuconf/core";
 import { bindAndValidate, flattenErrors, schemaAdapter } from "./classes.ts";
 import type { NestVarDecl } from "./declaration.ts";
 
-const URL_SHAPE = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s]+$/;
 
 /** Maps a class-validator constraint to a stable docuconf code. */
 export function codeFor(constraint: string, decl: Pick<NestVarDecl, "type">): ErrorCode {
@@ -36,72 +35,12 @@ export function codeFor(constraint: string, decl: Pick<NestVarDecl, "type">): Er
   }
 }
 
-/**
- * Turns one raw value into the property's type, with the checks class-validator
- * cannot make on a string: strict numbers, `true`/`false`, Go durations, URL
- * shape and scheme, list splitting, JSON. `undefined` means unset.
- */
-function convert(decl: NestVarDecl, value: string, report: VarReport): { value: unknown; ok: boolean } {
-  const got = report.got(value);
-  const fail = (code: ErrorCode, message: string) => {
-    report.add(code, message);
-    return { value: undefined, ok: false };
-  };
-  switch (decl.type) {
-    case "string":
-    case "enum":
-      return { value, ok: true };
-    case "int":
-      return { value: Number(value), ok: true };
-    case "float": {
-      const n = Number(value);
-      return Number.isFinite(n) ? { value: n, ok: true } : fail("invalid_type", `expected a finite number${got}`);
-    }
-    case "bool": {
-      const v = value.toLowerCase();
-      return v === "true" ? { value: true, ok: true } : v === "false" ? { value: false, ok: true } : fail("invalid_type", `expected true or false${got}`);
-    }
-    case "duration": {
-      const ms = parseDuration(value);
-      if (ms === undefined || ms < 0) return fail("invalid_type", `expected a Go duration such as 30s or 1m30s${got}`);
-      if (decl.durationMin !== undefined && ms < decl.durationMin) return fail("out_of_range", `must be at least ${decl.contract["min"]}${got}`);
-      if (decl.durationMax !== undefined && ms > decl.durationMax) return fail("out_of_range", `must be at most ${decl.contract["max"]}${got}`);
-      return { value: ms, ok: true };
-    }
-    case "url": {
-      if (!URL_SHAPE.test(value) || !URL.canParse(value)) return fail("invalid_type", `expected a URL such as https://host/path${got}`);
-      const scheme = value.slice(0, value.indexOf(":")).toLowerCase();
-      if (decl.schemes && !decl.schemes.includes(scheme)) return fail("invalid_scheme", `scheme must be one of ${decl.schemes.join(", ")}${got}`);
-      return { value, ok: true };
-    }
-    case "list": {
-      const items = value.split(decl.separator ?? ",");
-      if (decl.items !== "int") return { value: items, ok: true };
-      const out: number[] = [];
-      for (const [i, item] of items.entries()) {
-        const r = intItem(item, decl);
-        if ("code" in r) return fail(r.code, `item ${i + 1}: ${r.message}${report.got(item)}`);
-        out.push(r.value);
-      }
-      return { value: out, ok: true };
-    }
-    case "json": {
-      let parsed: unknown;
-      try {
-        parsed = JSON.parse(value);
-      } catch {
-        return fail("invalid_type", `expected a JSON value${got}`);
-      }
-      if (decl.jsonSchema === undefined) return { value: parsed, ok: true };
-      const r = typeof decl.jsonSchema === "function" ? bindAndValidate(decl.jsonSchema as never, parsed) : schemaAdapter.validate(decl.jsonSchema, parsed);
-      if (r.issues !== undefined) {
-        for (const issue of r.issues) report.add("schema_mismatch", `${issue.path || "(root)"}: ${issue.message}`);
-        return { value: undefined, ok: false };
-      }
-      return { value: r.value, ok: true };
-    }
-  }
-}
+/** A `@Json` variable's value, bound to and validated with its class or schema. */
+const validateJson: JsonCheck = (decl, parsed) => {
+  const schema = (decl as NestVarDecl).jsonSchema;
+  if (schema === undefined) return { value: parsed };
+  return typeof schema === "function" ? bindAndValidate(schema as never, parsed) : schemaAdapter.validate(schema, parsed);
+};
 
 export interface EnvResult {
   /** Typed values by property. */
@@ -127,7 +66,7 @@ export function validateEnv(vars: ReadonlyMap<string, NestVarDecl>, env: Record<
     let value: unknown = undefined;
     if (!pre.ok) failed.add(name);
     else if (typeof pre.value === "string") {
-      const r = convert(decl, pre.value, report);
+      const r = convertValue(decl, pre.value, report, validateJson);
       if (r.ok) value = r.value;
       else failed.add(name);
     } else if (pre.value !== undefined) {

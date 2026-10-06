@@ -1,6 +1,15 @@
 import * as z from "zod";
 import type { StandardSchemaV1 } from "@t3-oss/env-core";
-import { CONTRACT_DURATION, type ErrorCode, formatDuration, intItem, parseDuration } from "@docuconf/core";
+import {
+  CONTRACT_DURATION,
+  DURATION_EXAMPLE,
+  type ErrorCode,
+  durationProblem,
+  formatDuration,
+  intItem,
+  parseDuration,
+  urlProblem,
+} from "@docuconf/core";
 import { contractSchema, jsonSchemaOf } from "./jsonschema.ts";
 import {
   ANNOTATIONS_KEY,
@@ -78,16 +87,13 @@ export function duration(opts: DurationOptions = {}): z.ZodType<number, string |
     .meta(typeMeta(meta))
     .transform((value, ctx) => {
       const ms = parseDuration(value);
-      if (ms === undefined) {
-        ctx.addIssue(issue("invalid_type", "expected a Go duration such as 30s or 1m30s", value));
+      if (ms === undefined || ms < 0) {
+        ctx.addIssue(issue("invalid_type", `expected ${DURATION_EXAMPLE.go}`, value));
         return z.NEVER;
       }
-      if (min !== undefined && ms < min) {
-        ctx.addIssue(issue("out_of_range", `must be at least ${meta.min}`, value));
-        return z.NEVER;
-      }
-      if (max !== undefined && ms > max) {
-        ctx.addIssue(issue("out_of_range", `must be at most ${meta.max}`, value));
+      const p = durationProblem(ms, min, max);
+      if (p) {
+        ctx.addIssue(issue(p.code, p.message, value));
         return z.NEVER;
       }
       return ms;
@@ -168,8 +174,6 @@ export interface UrlOptions {
   schemes?: [string, ...string[]];
 }
 
-const URL_SHAPE = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s]+$/;
-
 /**
  * A URL with a `scheme://` prefix, optionally restricted to `schemes`.
  * The value stays a string. Contract type `url`.
@@ -182,16 +186,8 @@ export function url(opts: UrlOptions = {}): z.ZodString {
     .string()
     .meta(typeMeta(meta))
     .superRefine((value, ctx) => {
-      if (!URL_SHAPE.test(value) || !URL.canParse(value)) {
-        ctx.addIssue(issue("invalid_type", "expected a URL such as https://host/path", value));
-        return;
-      }
-      if (schemes) {
-        const scheme = value.slice(0, value.indexOf(":")).toLowerCase();
-        if (!schemes.includes(scheme)) {
-          ctx.addIssue(issue("invalid_scheme", `scheme must be one of ${schemes.join(", ")}`, value));
-        }
-      }
+      const p = urlProblem(value, schemes);
+      if (p) ctx.addIssue(issue(p.code, p.message, value));
     });
 }
 

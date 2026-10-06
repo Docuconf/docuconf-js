@@ -260,3 +260,10 @@ describe("int list item bounds (SPEC §4.3 itemMin, itemMax)", () => {
     expect(run({ SHARDS: "0,7,1023", IDS: "-5" })).toEqual([]);
   });
 });
+
+describe("durations", () => {
+  it("rejects a negative duration, which no contract can express", () => {
+    expect(codes(failure({ ...good, TIMEOUT: "-5s" }))).toEqual([["TIMEOUT", "invalid_type"]]);
+    expect(codes(failure({ ...good, TIMEOUT: "6m" }))).toEqual([["TIMEOUT", "out_of_range"]]);
+  });
+});
