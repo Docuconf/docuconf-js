@@ -134,7 +134,7 @@ Every property with class-validator decorators or `@Describe` is a variable name
 | `duration` | `@Duration({ min, max, default })`, Go syntax (`30s`, `1m30s`) | `number` (milliseconds) |
 | `url` | `@UrlSchemes("https", ...)`, or `@IsUrl({ protocols })` | `string` |
 | `enum` | `@IsEnum(StringEnum)` or `@IsIn([...])` | the enum |
-| `list` | `@List({ separator })`; items `@IsString({ each: true })` or `@IsInt({ each: true })`; `@ArrayMinSize`, `@ArrayMaxSize` | `string[]` or `number[]` |
+| `list` | `@List({ separator })`; items `@IsString({ each: true })` or `@IsInt({ each: true })`, int items bounded with `@Min`, `@Max`, `@IsPositive`, `@IsNegative` and `{ each: true }`; `@ArrayMinSize`, `@ArrayMaxSize` | `string[]` or `number[]` |
 | `json` | `@Json(SomeClass)`, validated with that class's decorators | `SomeClass` |
 
 - **Descriptions**: `@Describe("...")`, at least 5 characters, on every variable.
@@ -143,6 +143,7 @@ Every property with class-validator decorators or `@Describe` is a variable name
 - **Docs metadata**: `@Examples("eu-west-1")`, `@Group("logging")`, `@Deprecated({ message, replacedBy })`. Setting a deprecated variable logs a warning.
 - **Values are parsed by docuconf, not class-transformer.** Env strings become the contract type (strict base-10 integers; `true`/`false` in any case, so `"false"` is never `true`; Go durations; lists split on the separator) before class-validator checks the instance. `@Type` and `@Transform` on variables are not applied; on `@Json` and config-file classes, `@Type` is how nested classes are found.
 - **Empty strings** count as unset for every type except `string`. Values are never trimmed.
+- **Int list items** are exported with `itemMin`/`itemMax` from `@Min(0, { each: true })` and friends, capped at ±`Number.MAX_SAFE_INTEGER` as for `int` variables; an item outside them is `out_of_range`.
 - **Patterns** (`@Matches`) are RE2 and match anywhere in the value; anchor with `^...$`. Lookaround, backreferences and flags other than `g`/`u` are rejected.
 - **Constraints the contract cannot express** (`@IsEmail()`, custom validators) are still checked at boot, with a warning that the platform cannot see them.
 - **Feature flags**: names starting `FF_`, `FEATURE_`, `FEATURE_FLAG_` or `ENABLE_` produce a warning (SPEC §10).

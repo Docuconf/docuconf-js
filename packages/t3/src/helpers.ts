@@ -1,6 +1,6 @@
 import * as z from "zod";
 import type { StandardSchemaV1 } from "@t3-oss/env-core";
-import { CONTRACT_DURATION, type ErrorCode, formatDuration, parseDuration } from "@docuconf/core";
+import { CONTRACT_DURATION, type ErrorCode, formatDuration, intItem, parseDuration } from "@docuconf/core";
 import { contractSchema, jsonSchemaOf } from "./jsonschema.ts";
 import {
   ANNOTATIONS_KEY,
@@ -127,6 +127,13 @@ export function list<T extends z.ZodType>(item: T, opts: ListOptions = {}): z.Zo
     throw new TypeError("list(): items must be strings or integers (for example z.string() or z.coerce.number().int())");
   }
   const meta: DocuconfTypeMeta = { type: "list", items, encoding: "csv", separator };
+  if (items === "int") {
+    // The item type's range, such as z.int32() or .min(0), becomes itemMin
+    // and itemMax (SPEC §4.3); the exporter caps them at safe integers.
+    const js = outJs["type"] === "integer" ? outJs : itemJs;
+    const n = (k: string) => (typeof js[k] === "number" && Number.isFinite(js[k]) ? (js[k] as number) : undefined);
+    meta.itemBounds = { min: n("minimum"), max: n("maximum"), exclusiveMin: n("exclusiveMinimum"), exclusiveMax: n("exclusiveMaximum") };
+  }
   let arr = z.array(item);
   if (opts.minItems !== undefined) {
     meta.minItems = opts.minItems;
@@ -139,7 +146,20 @@ export function list<T extends z.ZodType>(item: T, opts: ListOptions = {}): z.Zo
   return z
     .string()
     .meta(typeMeta(meta))
-    .transform((v) => v.split(separator))
+    .transform((v, ctx) => {
+      const parts = v.split(separator);
+      if (items === "int") {
+        // Strict base-10 items: z.coerce.number() alone takes " 5", "0x5" and "5e0".
+        for (const [i, part] of parts.entries()) {
+          const r = intItem(part, {});
+          if ("code" in r && r.code === "invalid_type") {
+            ctx.addIssue(issue("invalid_type", `item ${i + 1}: ${r.message}`, v));
+            return z.NEVER;
+          }
+        }
+      }
+      return parts;
+    })
     .pipe(arr as unknown as z.ZodType<z.output<T>[], string[]>) as unknown as z.ZodType<z.output<T>[], string>;
 }
 

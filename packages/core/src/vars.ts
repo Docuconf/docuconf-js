@@ -92,7 +92,11 @@ export class VarReport {
   }
 }
 
-const INT = /^[+-]?[0-9]+$/;
+/** Strict base-10 integer syntax: no spaces, hex, exponent or fraction. */
+export const INT_SYNTAX = /^[+-]?[0-9]+$/;
+const INT = INT_SYNTAX;
+const MAX_SAFE = Number.MAX_SAFE_INTEGER;
+const UNSAFE = `integers beyond ±${MAX_SAFE} are not exact in JavaScript`;
 const FLOAT = /^[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/;
 
 /**
@@ -128,7 +132,7 @@ export function precheckVar(decl: VarBase, raw: unknown, report: VarReport): { v
       return { value: undefined, ok: false };
     }
     if (!Number.isSafeInteger(Number(value))) {
-      report.add("out_of_range", `integers beyond ±${Number.MAX_SAFE_INTEGER} are not exact in JavaScript${got}`);
+      report.add("out_of_range", `${UNSAFE}${got}`);
       return { value: undefined, ok: false };
     }
   }
@@ -173,16 +177,44 @@ export function contractDefault(type: VarType, v: unknown): unknown {
   }
 }
 
-const MAX_SAFE = Number.MAX_SAFE_INTEGER;
+
+/** An int list's item bounds (SPEC §4.3 itemMin, itemMax). */
+export interface ItemBounds {
+  itemMin?: number | undefined;
+  itemMax?: number | undefined;
+}
 
 /**
- * An int variable's contract bounds. A JavaScript number is exact only up
- * to 2^53 - 1 (SPEC §5), so the bounds are always exported, capped there.
+ * Checks one item of an int list: a string in strict base-10 syntax, or a
+ * number (from a JSON list), that is a safe integer within the item bounds.
+ * Returns the item, or the code and a message that never quotes it.
+ */
+export function intItem(item: unknown, bounds: ItemBounds): { value: number } | { code: ErrorCode; message: string } {
+  let n: number;
+  if (typeof item === "string") {
+    if (!INT_SYNTAX.test(item)) return { code: "invalid_type", message: "expected a base-10 integer" };
+    n = Number(item);
+  } else if (typeof item === "number" && Number.isInteger(item)) {
+    n = item;
+  } else {
+    return { code: "invalid_type", message: "expected an integer" };
+  }
+  if (!Number.isSafeInteger(n)) return { code: "out_of_range", message: UNSAFE };
+  if (bounds.itemMin !== undefined && n < bounds.itemMin) return { code: "out_of_range", message: `must be at least ${bounds.itemMin}` };
+  if (bounds.itemMax !== undefined && n > bounds.itemMax) return { code: "out_of_range", message: `must be at most ${bounds.itemMax}` };
+  return { value: n };
+}
+
+/**
+ * An int variable's contract bounds, or an int list's item bounds. A
+ * JavaScript number is exact only up to 2^53 - 1 (SPEC §5), so the bounds
+ * are always exported, capped there. `keys` names them in warnings.
  */
 export function intBounds(
   name: string,
   bounds: { min?: number; max?: number; exclusiveMin?: number; exclusiveMax?: number },
   warnings: string[],
+  keys: { min: string; max: string } = { min: "min", max: "max" },
 ): { min: number; max: number } {
   let { min, max } = bounds;
   if (bounds.exclusiveMin !== undefined) min = Math.max(min ?? -Infinity, Math.floor(bounds.exclusiveMin) + 1);
@@ -190,11 +222,11 @@ export function intBounds(
   if (min !== undefined && !Number.isInteger(min)) min = Math.ceil(min);
   if (max !== undefined && !Number.isInteger(max)) max = Math.floor(max);
   if (min === undefined || min < -MAX_SAFE) {
-    if (min !== undefined) warnings.push(`${name}: min capped at -Number.MAX_SAFE_INTEGER`);
+    if (min !== undefined) warnings.push(`${name}: ${keys.min} capped at -Number.MAX_SAFE_INTEGER`);
     min = -MAX_SAFE;
   }
   if (max === undefined || max > MAX_SAFE) {
-    if (max !== undefined) warnings.push(`${name}: max capped at Number.MAX_SAFE_INTEGER`);
+    if (max !== undefined) warnings.push(`${name}: ${keys.max} capped at Number.MAX_SAFE_INTEGER`);
     max = MAX_SAFE;
   }
   return { min, max };

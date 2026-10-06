@@ -98,7 +98,8 @@ export class EnvironmentVariables {
   @List() @IsString({ each: true }) @ArrayMinSize(1) @ArrayMaxSize(10) @Describe("CORS origins allowed to call the API")
   ALLOWED_ORIGINS!: string[];
 
-  @IsOptional() @List({ separator: ";" }) @IsInt({ each: true }) @Describe("Ports the workers bind")
+  @IsOptional() @List({ separator: ";" }) @IsInt({ each: true }) @Min(1, { each: true }) @Max(65535, { each: true })
+  @Describe("Ports the workers bind")
   WORKER_PORTS?: number[];
 
   @IsOptional() @Json(RateLimits) @Describe("Default per-client rate limits")

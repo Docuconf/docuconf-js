@@ -168,6 +168,7 @@ Only the `server` section is runtime configuration. T3's `client` section (and `
 - **Booleans**: `z.coerce.boolean()` turns `"false"` into `true`, so the declaration check rejects it and points to `z.stringbool()`.
 - **Patterns** are RE2 and match anywhere in the value, as `RegExp.test` does; anchor with `^...$`. Lookaround and backreferences are rejected.
 - **Empty strings** count as unset for every type except `string`. Values are never trimmed. Integers must be plain base-10 (`" 42"`, `0x2A` and `1e3` are rejected).
+- **Int list items**: the item schema's range is exported as `itemMin`/`itemMax` and checked at boot (`out_of_range`): `list(z.coerce.number().int().min(0).max(1023))`, or `list(z.int32())` for 32-bit items. Without bounds, items are capped at ±`Number.MAX_SAFE_INTEGER`, as for `int` variables.
 - **Feature flags**: names starting `FF_`, `FEATURE_`, `FEATURE_FLAG_` or `ENABLE_` produce a warning (SPEC §10): flags that change without a rollout belong in a flag service.
 
 Problems with the declaration itself (bad names, short descriptions, non-RE2 patterns, a default that breaks its own constraints, file mount clashes) throw `DocuconfDeclarationError` at definition time, in both boot and export mode.

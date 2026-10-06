@@ -1,10 +1,9 @@
 import { validateSync } from "class-validator";
-import { type ErrorCode, VarReport, type Violation, parseDuration, precheckVar } from "@docuconf/core";
+import { type ErrorCode, VarReport, type Violation, intItem, parseDuration, precheckVar } from "@docuconf/core";
 import { bindAndValidate, flattenErrors, schemaAdapter } from "./classes.ts";
 import type { NestVarDecl } from "./declaration.ts";
 
 const URL_SHAPE = /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\/[^\s]+$/;
-const INT_ITEM = /^[+-]?[0-9]+$/;
 
 /** Maps a class-validator constraint to a stable docuconf code. */
 export function codeFor(constraint: string, decl: Pick<NestVarDecl, "type">): ErrorCode {
@@ -80,10 +79,9 @@ function convert(decl: NestVarDecl, value: string, report: VarReport): { value: 
       if (decl.items !== "int") return { value: items, ok: true };
       const out: number[] = [];
       for (const [i, item] of items.entries()) {
-        if (!INT_ITEM.test(item) || !Number.isSafeInteger(Number(item))) {
-          return fail("invalid_type", `item ${i + 1}: expected a base-10 integer${report.got(item)}`);
-        }
-        out.push(Number(item));
+        const r = intItem(item, decl);
+        if ("code" in r) return fail(r.code, `item ${i + 1}: ${r.message}${report.got(item)}`);
+        out.push(r.value);
       }
       return { value: out, ok: true };
     }

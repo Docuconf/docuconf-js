@@ -33,6 +33,9 @@ export interface NestVarDecl extends VarBase {
   schemes?: string[];
   /** List item type. */
   items?: "string" | "int";
+  /** Bounds on each item of an int list. */
+  itemMin?: number;
+  itemMax?: number;
   jsonSchema?: JsonSchemaSource;
   deprecated?: { message: string; replacedBy?: string };
 }
@@ -241,6 +244,26 @@ function describeVar(
       const maxItems = num(cs, "arrayMaxSize");
       if (minItems !== undefined) c["minItems"] = minItems;
       if (maxItems !== undefined) c["maxItems"] = maxItems;
+      if (items === "int") {
+        // @Min(0, { each: true }) and friends bound each item (SPEC §4.3).
+        const each = (n: string) => {
+          const v = find(cs, n, true)?.constraints[0];
+          return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+        };
+        const { min, max } = intBounds(
+          name,
+          {
+            min: each("min"),
+            max: each("max"),
+            exclusiveMin: has(cs, "isPositive", true) ? 0 : undefined,
+            exclusiveMax: has(cs, "isNegative", true) ? 0 : undefined,
+          },
+          warnings,
+          { min: "itemMin", max: "itemMax" },
+        );
+        c["itemMin"] = decl.itemMin = min;
+        c["itemMax"] = decl.itemMax = max;
+      }
       break;
     }
     case "json": {
