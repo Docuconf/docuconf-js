@@ -1,0 +1,245 @@
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import "reflect-metadata";
+import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Matches, Max, Min } from "class-validator";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import {
+  Deprecated,
+  Describe,
+  DocuconfValidationError,
+  Duration,
+  type ErrorCode,
+  Json,
+  List,
+  Secret,
+  UrlSchemes,
+  docuconfValidate,
+} from "../src/index.ts";
+
+enum LogLevel {
+  Debug = "debug",
+  Info = "info",
+  Warn = "warn",
+}
+
+class Limits {
+  @IsInt() @Min(1)
+  perMinute!: number;
+}
+
+class Env {
+  @Secret() @UrlSchemes("postgres", "postgresql") @Describe("Primary Postgres connection string")
+  DATABASE_URL!: string;
+
+  @Secret() @IsString() @Matches(/^tok_[a-z0-9]+$/) @Describe("Token for the upstream API")
+  API_TOKEN!: string;
+
+  @IsInt() @Min(1) @Max(65535) @Describe("HTTP listen port")
+  PORT: number = 8080;
+
+  @IsOptional() @IsInt() @Describe("Largest request body")
+  MAX_BYTES?: number;
+
+  @IsNumber() @Min(0) @Max(1) @Describe("Sampling ratio")
+  RATIO: number = 0.5;
+
+  @IsBoolean() @Describe("Verbose logging")
+  DEBUG: boolean = true;
+
+  @Duration({ default: "30s", max: "5m" }) @Describe("Upstream request timeout")
+  TIMEOUT!: number;
+
+  @IsEnum(LogLevel) @Describe("Minimum log level")
+  LOG_LEVEL: LogLevel = LogLevel.Info;
+
+  @IsOptional() @List() @IsString({ each: true }) @ArrayMinSize(1) @ArrayMaxSize(3) @Describe("CORS origins")
+  ORIGINS?: string[];
+
+  @IsOptional() @List({ separator: ";" }) @IsInt({ each: true }) @Min(1, { each: true }) @Describe("Worker ports")
+  WORKER_PORTS?: number[];
+
+  @IsOptional() @Json(Limits) @Describe("Rate limits")
+  LIMITS?: Limits;
+
+  @IsString() @Describe("Greeting text")
+  GREETING: string = "hello";
+}
+
+const good = { DATABASE_URL: "postgres://u:p@db/app", API_TOKEN: "tok_abc123" };
+const validate = docuconfValidate(Env, { name: "vars", terminationLog: false, onWarning: () => {} });
+
+function failure(env: Record<string, unknown>, v: (c: Record<string, unknown>) => unknown = validate): DocuconfValidationError {
+  try {
+    v(env);
+  } catch (e) {
+    if (e instanceof DocuconfValidationError) return e;
+    throw e;
+  }
+  throw new Error("expected validation to fail");
+}
+
+function codes(e: DocuconfValidationError): Array<[string, ErrorCode]> {
+  return e.violations.map((v) => [v.input, v.code]);
+}
+
+afterEach(() => vi.unstubAllEnvs());
+
+describe("boot validation of variables", () => {
+  it("returns an instance of the class with typed values and defaults", () => {
+    const env = validate({ ...good, ORIGINS: "a,b", WORKER_PORTS: "8081;8082", LIMITS: '{"perMinute":5}', TIMEOUT: "1m30s", HOSTNAME: "pod-1" });
+    expect(env).toBeInstanceOf(Env);
+    expect(env.PORT).toBe(8080);
+    expect(env.RATIO).toBe(0.5);
+    expect(env.DEBUG).toBe(true);
+    expect(env.TIMEOUT).toBe(90_000);
+    expect(env.LOG_LEVEL).toBe("info");
+    expect(env.ORIGINS).toEqual(["a", "b"]);
+    expect(env.WORKER_PORTS).toEqual([8081, 8082]);
+    expect(env.LIMITS).toBeInstanceOf(Limits);
+    expect(env.LIMITS).toEqual({ perMinute: 5 });
+    expect(env.MAX_BYTES).toBeUndefined();
+    expect(env.DATABASE_URL).toBe("postgres://u:p@db/app");
+    // Variables the class does not declare are kept, as plainToInstance keeps them.
+    expect((env as unknown as Record<string, unknown>)["HOSTNAME"]).toBe("pod-1");
+    // Durations stay out of Object.keys, so Nest never writes "90000" to process.env.
+    expect(Object.keys(env)).not.toContain("TIMEOUT");
+    expect(Object.keys(env)).toContain("PORT");
+  });
+
+  it('parses "false" as false, case-insensitively, and nothing else as a bool', () => {
+    expect(validate({ ...good, DEBUG: "false" }).DEBUG).toBe(false);
+    expect(validate({ ...good, DEBUG: "FALSE" }).DEBUG).toBe(false);
+    expect(validate({ ...good, DEBUG: "True" }).DEBUG).toBe(true);
+    expect(codes(failure({ ...good, DEBUG: "yes" }))).toEqual([["DEBUG", "invalid_type"]]);
+  });
+
+  it("treats an empty string as unset, except for strings", () => {
+    const env = validate({ ...good, PORT: "", DEBUG: "", TIMEOUT: "", GREETING: "", ORIGINS: "" });
+    expect(env.PORT).toBe(8080);
+    expect(env.DEBUG).toBe(true);
+    expect(env.TIMEOUT).toBe(30_000);
+    expect(env.GREETING).toBe("");
+    expect(env.ORIGINS).toBeUndefined();
+    expect(codes(failure({ ...good, DATABASE_URL: "" }))).toEqual([["DATABASE_URL", "missing_required"]]);
+  });
+
+  it("reports a missing required variable", () => {
+    expect(codes(failure({ DATABASE_URL: good.DATABASE_URL }))).toEqual([["API_TOKEN", "missing_required"]]);
+  });
+
+  it("rejects bad ints, including values beyond 2^53 and loose syntax", () => {
+    for (const bad of ["eighty", "80.5", " 80", "0x50", "1e3"]) expect(codes(failure({ ...good, PORT: bad }))).toEqual([["PORT", "invalid_type"]]);
+    expect(codes(failure({ ...good, PORT: "70000" }))).toEqual([["PORT", "out_of_range"]]);
+    expect(codes(failure({ ...good, MAX_BYTES: "9007199254740993" }))).toEqual([["MAX_BYTES", "out_of_range"]]);
+    expect(validate({ ...good, MAX_BYTES: "9007199254740991" }).MAX_BYTES).toBe(Number.MAX_SAFE_INTEGER);
+    expect(codes(failure({ ...good, WORKER_PORTS: "1;x" }))).toEqual([["WORKER_PORTS", "invalid_type"]]);
+  });
+
+  it("maps every kind of problem to its code and reports them all together", () => {
+    const e = failure({
+      DATABASE_URL: "mysql://db/app",
+      API_TOKEN: "nope",
+      PORT: "0",
+      RATIO: "NaN",
+      DEBUG: "maybe",
+      TIMEOUT: "10m",
+      LOG_LEVEL: "trace",
+      ORIGINS: "a,b,c,d",
+      WORKER_PORTS: "0",
+      LIMITS: '{"perMinute":0}',
+    });
+    expect(codes(e)).toEqual([
+      ["DATABASE_URL", "invalid_scheme"],
+      ["API_TOKEN", "pattern_mismatch"],
+      ["PORT", "out_of_range"],
+      ["RATIO", "invalid_type"],
+      ["DEBUG", "invalid_type"],
+      ["TIMEOUT", "out_of_range"],
+      ["LOG_LEVEL", "not_in_enum"],
+      ["ORIGINS", "too_many_items"],
+      ["WORKER_PORTS", "out_of_range"],
+      ["LIMITS", "schema_mismatch"],
+    ]);
+    expect(e.message).toMatch(/^docuconf: 10 configuration problems:/);
+    expect(e.message).toContain('PORT [out_of_range]: must not be less than 1 (got "0")');
+    expect(e.message).toContain("LIMITS [schema_mismatch]: perMinute: must not be less than 1");
+  });
+
+  it("inherits declarations from a base class", () => {
+    class Extended extends Env {
+      @IsOptional() @IsInt() @Describe("Extra worker count")
+      WORKERS?: number;
+    }
+    const v = docuconfValidate(Extended, { terminationLog: false, onWarning: () => {} });
+    expect(v({ ...good, WORKERS: "4" })).toMatchObject({ PORT: 8080, WORKERS: 4 });
+    expect(codes(failure({ WORKERS: "x" }, v))).toEqual([
+      ["DATABASE_URL", "missing_required"],
+      ["API_TOKEN", "missing_required"],
+      ["WORKERS", "invalid_type"],
+    ]);
+  });
+
+  it("never prints secret values", () => {
+    const e = failure({ DATABASE_URL: "mysql://admin:hunter2@db/app", API_TOKEN: "tok_HUNTER2-SECRET" });
+    expect(codes(e)).toEqual([
+      ["DATABASE_URL", "invalid_scheme"],
+      ["API_TOKEN", "pattern_mismatch"],
+    ]);
+    expect(e.message).not.toMatch(/hunter2/i);
+    expect(JSON.stringify(e.violations)).not.toMatch(/hunter2/i);
+    // Non-secret values are shown, to help fix them.
+    expect(failure({ ...good, PORT: "70000" }).message).toContain('"70000"');
+  });
+
+  it("reports a secret still holding an unresolved injector reference, without printing it", () => {
+    const log = join(mkdtempSync(join(tmpdir(), "docuconf-nest-tl-")), "termination-log");
+    const v = docuconfValidate(Env, { terminationLog: log, onWarning: () => {} });
+    const e = failure({ DATABASE_URL: "vault:secret/data/orders#url", API_TOKEN: "op://prod/orders/token" }, v);
+    expect(codes(e)).toEqual([
+      ["DATABASE_URL", "invalid_type"],
+      ["API_TOKEN", "invalid_type"],
+    ]);
+    const logged = readFileSync(log, "utf8");
+    expect(logged).toContain("DATABASE_URL [invalid_type]: holds an unresolved vault: reference; the injector that should resolve it did not run");
+    expect(logged).toContain("API_TOKEN [invalid_type]: holds an unresolved op:// reference");
+    for (const text of [e.message, JSON.stringify(e.violations), logged]) {
+      expect(text).not.toContain("secret/data/orders");
+      expect(text).not.toContain("prod/orders/token");
+    }
+    expect(validate({ ...good, GREETING: "vault:hello" }).GREETING).toBe("vault:hello");
+  });
+
+  it("writes violations to the termination log, and honours DOCUCONF_TERMINATION_LOG", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "docuconf-nest-tl-")), "log");
+    vi.stubEnv("DOCUCONF_TERMINATION_LOG", path);
+    const v = docuconfValidate(Env, { onWarning: () => {} });
+    expect(() => v({ API_TOKEN: "x" })).toThrow(DocuconfValidationError);
+    const log = readFileSync(path, "utf8");
+    expect(log).toContain("DATABASE_URL [missing_required]");
+    expect(log).toContain("API_TOKEN [pattern_mismatch]");
+    expect(log).not.toContain('"x"');
+  });
+
+  it("warns once about declaration hints and when a deprecated variable is set", () => {
+    class Flags {
+      @IsOptional() @IsBoolean() @Describe("Turns on the new checkout")
+      FF_NEW_CHECKOUT?: boolean;
+
+      @IsOptional() @IsString() @Deprecated({ message: "use REGION", replacedBy: "REGION" }) @Describe("Old region name")
+      ZONE?: string;
+    }
+    const warnings: string[] = [];
+    const v = docuconfValidate(Flags, { onWarning: (m) => warnings.push(m) });
+    v({ ZONE: "eu" });
+    v({});
+    expect(warnings).toEqual([
+      expect.stringMatching(/^FF_NEW_CHECKOUT: looks like a feature flag/),
+      "ZONE is deprecated: use REGION",
+    ]);
+  });
+
+  it("accepts already-typed values, as a load() factory or a test might pass", () => {
+    expect(validate({ ...good, PORT: 9090, DEBUG: false }).PORT).toBe(9090);
+  });
+});

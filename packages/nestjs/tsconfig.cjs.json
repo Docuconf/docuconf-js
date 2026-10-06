@@ -1,0 +1,14 @@
+{
+  // The CommonJS build, for NestJS 11 apps and Jest, which require() the
+  // package. dist/cjs/package.json marks it "type": "commonjs".
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "moduleResolution": "Node10",
+    "verbatimModuleSyntax": false,
+    "customConditions": null,
+    "outDir": "dist/cjs"
+  },
+  // The export CLI loads modules with dynamic import(), which only the ESM build keeps.
+  "exclude": ["src/bin.ts", "src/cli.ts", "src/export.ts", "src/ts-loader.ts"]
+}

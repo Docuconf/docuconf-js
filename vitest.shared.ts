@@ -6,4 +6,5 @@ const src = (p: string) => fileURLToPath(new URL(`./packages/${p}`, import.meta.
 export const sourceAliases = [
   { find: /^@docuconf\/core\/loader$/, replacement: src("core/src/loader.ts") },
   { find: /^@docuconf\/core$/, replacement: src("core/src/index.ts") },
+  { find: /^@docuconf\/nestjs$/, replacement: src("nestjs/src/index.ts") },
 ];

@@ -1,11 +1,12 @@
 {
   "name": "docuconf-js",
   "private": true,
-  "description": "docuconf SDKs for JavaScript and TypeScript: @docuconf/t3 and the shared @docuconf/core.",
+  "description": "docuconf SDKs for JavaScript and TypeScript: @docuconf/t3, @docuconf/nestjs and their shared @docuconf/core.",
   "type": "module",
   "workspaces": [
     "packages/core",
-    "packages/t3"
+    "packages/t3",
+    "packages/nestjs"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
