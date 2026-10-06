@@ -245,7 +245,7 @@ npm ci
 npm run typecheck
 npm test        # vets exported contracts with cue when it is installed
 npm run build
-npm run smoke   # installs the packed packages into a clean project and uses them from .mjs and .cjs
+npm run smoke   # installs the packed packages into clean projects (t3: from .mjs and .cjs)
 ```
 
 Releases are published to npm from CI; see [RELEASING.md](https://github.com/docuconf/docuconf-js/blob/main/RELEASING.md).

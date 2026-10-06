@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
 
       # The contract meta-schema (spec/cue) lives in docuconf-go; the export
-      # test vets generated contracts against it.
+      # tests vet generated contracts against it.
       - uses: actions/checkout@v4
         with:
           repository: docuconf/docuconf-go
@@ -37,12 +37,17 @@ jobs:
       - name: Install cue
         run: go install cuelang.org/go/cmd/cue@v0.17.1
 
+      # One install for the workspace: @docuconf/core, @docuconf/t3, @docuconf/nestjs.
       - run: npm ci
       - run: npm run typecheck
+      # Every package's tests (vitest projects), against the TypeScript sources.
       - run: npm test
         env:
           DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
           DOCUCONF_REQUIRE_VET: "1"
       - run: npm run build
-      # Install the packed package into a clean project and use it from .mjs and .cjs.
+      # The NestJS example compiles against the built packages, as an app would.
+      - run: npx tsc -p examples/nestjs --noEmit
+      # Install the packed packages into clean projects: t3 from .mjs and .cjs,
+      # nestjs in a CommonJS NestJS 11 app and an ESM NestJS 12 consumer.
       - run: npm run smoke

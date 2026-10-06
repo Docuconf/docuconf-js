@@ -1,11 +1,15 @@
 name: Release
 
-# Push a tag such as v0.1.0 (matching package.json) to publish to npm.
+# Push a tag to publish one package to npm:
+#   v0.1.0         @docuconf/t3      (packages/t3, as before the workspace)
+#   nestjs-v0.1.0  @docuconf/nestjs  (packages/nestjs)
+#   core-v0.1.0    @docuconf/core    (packages/core; publish it before an SDK that needs a new version)
+# The version after the prefix must match the package's package.json.
 # Uses npm trusted publishing (OIDC): no npm token is stored, and npm adds
-# a provenance attestation linking the package to this workflow run.
+# a provenance attestation linking each version to this workflow run.
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*", "nestjs-v*", "core-v*"]
 
 permissions:
   contents: read
@@ -33,11 +37,34 @@ jobs:
           cache: false
       - run: go install cuelang.org/go/cmd/cue@v0.17.1
 
-      - name: Check the tag matches package.json
+      - name: Pick the package from the tag
+        id: pkg
         run: |
-          version=$(node -p "require('./package.json').version")
-          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match package.json version $version" >&2
+          tag="$GITHUB_REF_NAME"
+          case "$tag" in
+            core-v*)   dir=packages/core;   version="${tag#core-v}" ;;
+            nestjs-v*) dir=packages/nestjs; version="${tag#nestjs-v}" ;;
+            v*)        dir=packages/t3;     version="${tag#v}" ;;
+            *) echo "Unknown tag $tag" >&2; exit 1 ;;
+          esac
+          actual=$(node -p "require('./$dir/package.json').version")
+          name=$(node -p "require('./$dir/package.json').name")
+          if [ "$version" != "$actual" ]; then
+            echo "Tag $tag does not match $name version $actual in $dir/package.json" >&2
+            exit 1
+          fi
+          echo "dir=$dir" >> "$GITHUB_OUTPUT"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$([[ "$version" == *-* ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+      # The SDKs depend on @docuconf/core from npm, so the version they need
+      # must already be published (tag core-v... first).
+      - name: Check the @docuconf/core version the package needs is on npm
+        if: steps.pkg.outputs.dir != 'packages/core'
+        run: |
+          range=$(node -p "require('./${{ steps.pkg.outputs.dir }}/package.json').dependencies['@docuconf/core']")
+          if [ -z "$(npm view "@docuconf/core@$range" version)" ]; then
+            echo "@docuconf/core@$range is not published yet; push a core-v tag first" >&2
             exit 1
           fi
 
@@ -53,5 +80,5 @@ jobs:
       - run: npm run build
       - run: npm run smoke
 
-      - name: Publish
-        run: npm publish --access public ${{ contains(github.ref_name, '-') && '--tag next' || '' }}
+      - name: Publish ${{ steps.pkg.outputs.name }}
+        run: npm publish --workspace ${{ steps.pkg.outputs.dir }} --access public ${{ steps.pkg.outputs.prerelease == 'true' && '--tag next' || '' }}
