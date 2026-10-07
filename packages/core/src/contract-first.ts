@@ -8,7 +8,8 @@ import { DURATION_ENCODINGS, type DurationEncoding, parseDuration } from "./dura
 import { re2RegExp } from "./re2.ts";
 import { type JsonCheck, LIST_ENCODINGS, type ListEncoding, type ValueDecl, convertValue } from "./values.ts";
 import { ENV_NAME, VarReport, type VarType, precheckVar, validDescription } from "./vars.ts";
-import { DocuconfDeclarationError, DocuconfValidationError, type Violation, formatViolations, writeTerminationLog } from "./violations.ts";
+import { failBoot } from "./termination.ts";
+import { DocuconfDeclarationError, type Violation } from "./violations.ts";
 
 const TYPES: readonly VarType[] = ["string", "int", "float", "bool", "duration", "url", "enum", "list", "json"];
 
@@ -297,6 +298,8 @@ export interface LoadContractOptions extends ContractCheckOptions {
   env?: Readonly<Record<string, string | undefined>>;
   /** Where to write violations. Default: DOCUCONF_TERMINATION_LOG, else /dev/termination-log if it exists. `false` disables. */
   terminationLog?: string | false;
+  /** On violations, print them and exit 1 instead of throwing (except under a test runner). */
+  exitOnError?: boolean;
 }
 
 /**
@@ -315,9 +318,6 @@ export function loadContract<T extends Record<string, unknown> = Record<string, 
   opts: LoadContractOptions = {},
 ): T {
   const { values, violations } = checkContract(contract, opts.env ?? process.env, opts);
-  if (violations.length > 0) {
-    writeTerminationLog(formatViolations(violations), opts.terminationLog);
-    throw new DocuconfValidationError(violations);
-  }
+  if (violations.length > 0) failBoot(violations, opts);
   return values as T;
 }

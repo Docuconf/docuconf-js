@@ -30,6 +30,17 @@
         "default": "./dist/cjs/index.js"
       }
     },
+    "./pure": {
+      "@docuconf/source": "./src/pure.ts",
+      "import": {
+        "types": "./dist/esm/pure.d.ts",
+        "default": "./dist/esm/pure.js"
+      },
+      "require": {
+        "types": "./dist/cjs/pure.d.ts",
+        "default": "./dist/cjs/pure.js"
+      }
+    },
     "./loader": {
       "@docuconf/source": "./src/loader.ts",
       "types": "./dist/esm/loader.d.ts",
