@@ -25,9 +25,12 @@ export type DocuconfTypeMeta =
       maxItems?: number;
       /** For int items: the item schema's bounds, from its JSON Schema. */
       itemBounds?: { min?: number; max?: number; exclusiveMin?: number; exclusiveMax?: number };
+      /** For string items: each item's length bounds, in characters. */
+      itemMinLength?: number;
+      itemMaxLength?: number;
     }
-  | { type: "url"; schemes?: string[] }
-  | { type: "json"; schema: Record<string, unknown> };
+  | { type: "url"; schemes?: string[]; maxLength?: number }
+  | { type: "json"; schema: Record<string, unknown>; maxLength?: number };
 
 export interface Annotations {
   group?: string;
