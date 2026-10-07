@@ -1,15 +1,18 @@
 export {
+  checkEnv,
   createEnv,
   closeWatchers,
   getDeclaration,
   onFileChange,
   reloadFile,
   toContract,
+  type CheckEnvOptions,
+  type CheckEnvResult,
   type DocuconfEnv,
   type DocuconfOptions,
 } from "./env.ts";
 export { annotate, duration, json, list, secret, url } from "./helpers.ts";
-export type { DurationOptions, ListOptions, UrlOptions } from "./helpers.ts";
+export type { DurationOptions, JsonOptions, ListOptions, UrlOptions } from "./helpers.ts";
 export type { Annotations } from "./meta.ts";
 export {
   binaryFile,
@@ -36,4 +39,4 @@ export {
   parseDuration,
   type ErrorCode,
   type Violation,
-} from "@docuconf/core";
+} from "@docuconf/core/pure";

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Installs the packed package into a clean project that is not "type": "module"
 # and uses it the way a plain-JavaScript app would: from .mjs (runtime and
-# `docuconf export`) and from .cjs via require(). Run after `npm run build`
+# `docuconf-t3 export`) and from .cjs via require(); the browser build and
+# @docuconf/t3/next resolve. Run after `npm run build`
 # (of this package and @docuconf/core, which is packed and installed with it).
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -52,8 +53,9 @@ if PORT=abc DATABASE_URL=postgres://u:p@db/x DOCUCONF_FILE_ROOT="$work/dev" node
 fi
 grep -q "PORT \[invalid_type\]" err.txt && echo "ok: .mjs boot validation"
 node main.cjs
-npx docuconf export env.mjs --out contract.cue >/dev/null
-grep -q 'name: "smoke"' contract.cue && echo "ok: docuconf export env.mjs"
+npx docuconf-t3 export env.mjs --out contract.cue >/dev/null
+grep -q 'name: "smoke"' contract.cue && echo "ok: docuconf-t3 export env.mjs"
+npx docuconf-t3 export env.mjs --check contract.cue 2>/dev/null && echo "ok: docuconf-t3 export --check"
 
 cat > env.cjs <<'JS'
 const { z } = require("zod");
@@ -64,5 +66,24 @@ exports.env = createEnv({
   runtimeEnv: process.env,
 });
 JS
-npx docuconf export env.cjs --out contract-cjs.cue >/dev/null
-grep -q 'name: "smoke-cjs"' contract-cjs.cue && echo "ok: docuconf export env.cjs"
+npx docuconf-t3 export env.cjs --out contract-cjs.cue >/dev/null
+grep -q 'name: "smoke-cjs"' contract-cjs.cue && echo "ok: docuconf-t3 export env.cjs"
+
+# jiti is an optional peer: export of plain JavaScript and erasable TypeScript needs no extra package.
+[ ! -e node_modules/jiti ] && echo "ok: jiti is not installed with the SDK"
+
+# The browser build: what bundlers resolve for client components.
+node --conditions=browser --input-type=module -e '
+import { createEnv, duration } from "@docuconf/t3";
+import { z } from "zod";
+const env = createEnv({ server: { T: duration({ default: "1s" }).describe("A timeout") },
+  client: { PUBLIC_X: z.string() }, clientPrefix: "PUBLIC_", runtimeEnv: { PUBLIC_X: "x" }, isServer: false });
+try { env.files.x; throw new Error("env.files did not throw in the browser build"); } catch (e) { if (!/server-only/.test(e.message)) throw e; }
+if (env.PUBLIC_X !== "x") throw new Error("client variable");
+console.log("ok: browser build");'
+
+node --input-type=module -e '
+import { registerEnv } from "@docuconf/t3/next";
+if (typeof registerEnv(async () => {}) !== "function") throw new Error("registerEnv");
+console.log("ok: @docuconf/t3/next");'
+

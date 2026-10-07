@@ -24,8 +24,8 @@ export interface PropertyMeta {
   schemes?: string[];
   duration?: DurationOptions;
   list?: ListOptions;
-  /** A class (or nothing) the JSON value binds to. */
-  json?: { schema: JsonSchemaSource | undefined };
+  /** A class (or nothing) the JSON value binds to, and the value's length limit. */
+  json?: { schema: JsonSchemaSource | undefined; options?: JsonOptions };
   examples?: string[];
   group?: string;
   deprecated?: { message: string; replacedBy?: string };
@@ -79,6 +79,7 @@ export function Secret(): Decorator {
  * A URL with a `scheme://` prefix, restricted to `schemes` (without "://"),
  * e.g. `@UrlSchemes("postgres", "postgresql")`. Contract type `url`. Unlike
  * `@IsUrl()`, it accepts hosts without a top-level domain, such as `db`.
+ * Bound the length with `@MaxLength()`, in characters (code points).
  */
 export function UrlSchemes(...schemes: [string, ...string[]]): Decorator {
   return (t, p) => update(t, p, (m) => void (m.schemes = schemes));
@@ -109,19 +110,28 @@ export interface ListOptions {
 /**
  * A list in one variable, split on `separator` (contract encoding `csv`).
  * Items are strings, or integers with `@IsInt({ each: true })`. Bound the
- * length with `@ArrayMinSize()` and `@ArrayMaxSize()`.
+ * length with `@ArrayMinSize()` and `@ArrayMaxSize()`, each string item's
+ * length with `@MinLength(n, { each: true })` and `@MaxLength(n, { each: true })`
+ * (characters, as code points), and each integer item with
+ * `@Min(n, { each: true })` and `@Max(n, { each: true })`.
  */
 export function List(options: ListOptions = {}): Decorator {
   return (t, p) => update(t, p, (m) => void (m.list = options));
 }
 
+export interface JsonOptions {
+  /** Longest accepted value as received, in characters (code points), whitespace included. */
+  maxLength?: number;
+}
+
 /**
  * A structured value in one variable, sent as compact JSON. With a
  * class-validator class, the value is bound to it and validated, and its
- * JSON Schema goes into the contract.
+ * JSON Schema goes into the contract. `maxLength` bounds the raw value,
+ * before parsing: `@Json(Limits, { maxLength: 256 })`.
  */
-export function Json(schema?: JsonSchemaSource): Decorator {
-  return (t, p) => update(t, p, (m) => void (m.json = { schema }));
+export function Json(schema?: JsonSchemaSource, options: JsonOptions = {}): Decorator {
+  return (t, p) => update(t, p, (m) => void (m.json = { schema, options }));
 }
 
 /** Example values for documentation. Not allowed on secrets. */

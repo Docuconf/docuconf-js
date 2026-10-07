@@ -26,9 +26,14 @@ export function checkVarName(name: string, problems: string[], warnings: string[
       `${name}: looks like a feature flag. Flags that change without a rollout belong in a flag service (OpenFeature), not the environment contract (SPEC §10).`,
     );
   }
+  if (name === "NODE_ENV") {
+    warnings.push(
+      'NODE_ENV: is a framework concern (SPEC §11.1), not service configuration. Test runners set it to "test" and frameworks to "development" or "production"; read process.env.NODE_ENV directly and leave it out of the declaration.',
+    );
+  }
 }
 
-/** What a violation says about a secret: the code's meaning, never the value or a validator message that may quote it. */
+/** The meaning of each code, for messages that cannot say more. */
 export const GENERIC: Record<ErrorCode, string> = {
   missing_required: "required, but not set",
   invalid_type: "value does not have the expected type",
@@ -72,17 +77,17 @@ export function injectorScheme(raw: unknown): string | undefined {
   return undefined;
 }
 
-/** Collects one variable's violations, replacing messages with GENERIC ones for secrets. */
+/** Collects one variable's violations. For secrets, messages come from the declaration, never from the value. */
 export class VarReport {
   readonly violations: Violation[] = [];
-  private readonly decl: Pick<VarBase, "name" | "secret">;
-  constructor(decl: Pick<VarBase, "name" | "secret">) {
+  private readonly decl: Pick<VarBase, "name" | "secret"> & Partial<Pick<VarBase, "type" | "contract">>;
+  constructor(decl: Pick<VarBase, "name" | "secret"> & Partial<Pick<VarBase, "type" | "contract">>) {
     this.decl = decl;
   }
 
   /** `safe` marks a message written to never contain the value, so it is kept for secrets too. */
   add(code: ErrorCode, message: string, safe = false): void {
-    const shown = this.decl.secret && !safe ? GENERIC[code] : message;
+    const shown = this.decl.secret && !safe ? secretMessage(this.decl, code) : message;
     this.violations.push({ input: this.decl.name, kind: "var", code, message: shown });
   }
 
@@ -90,6 +95,66 @@ export class VarReport {
   got(value: unknown): string {
     return this.decl.secret ? "" : ` (got ${JSON.stringify(value)})`;
   }
+}
+
+const SAFE_LIMIT = Number.MAX_SAFE_INTEGER;
+const EXPECTED: Partial<Record<VarType, string>> = {
+  int: "expected a base-10 integer",
+  float: "expected a decimal number",
+  bool: "expected true or false",
+  duration: "expected a Go duration such as 30s",
+  url: "expected a URL such as scheme://host",
+  list: "expected a list",
+  json: "expected a JSON value",
+};
+
+function range(min: unknown, max: unknown, unit = ""): string | undefined {
+  const lo = typeof min === "number" && min > -SAFE_LIMIT ? min : typeof min === "string" ? min : undefined;
+  const hi = typeof max === "number" && max < SAFE_LIMIT ? max : typeof max === "string" ? max : undefined;
+  if (lo !== undefined && hi !== undefined) return `must be between ${lo} and ${hi}${unit}`;
+  if (lo !== undefined) return `must be at least ${lo}${unit}`;
+  if (hi !== undefined) return `must be at most ${hi}${unit}`;
+  return undefined;
+}
+
+/**
+ * What a violation says about a secret: the rule from the declaration (a
+ * contract is not secret), never the value or a validator message that may
+ * quote it.
+ */
+export function secretMessage(decl: Partial<Pick<VarBase, "type" | "contract">>, code: ErrorCode): string {
+  const c = decl.contract ?? {};
+  let rule: string | undefined;
+  switch (code) {
+    case "missing_required":
+      return GENERIC.missing_required;
+    case "invalid_type":
+      rule = decl.type ? EXPECTED[decl.type] : undefined;
+      break;
+    case "out_of_range":
+      if (decl.type === "string") rule = range(c["minLength"], c["maxLength"], " characters long");
+      else if (decl.type === "list") rule = range(c["itemMin"], c["itemMax"])?.replace(/^must/, "each item must");
+      else rule = range(c["min"], c["max"]);
+      break;
+    case "pattern_mismatch":
+      if (typeof c["pattern"] === "string") rule = `must match ${c["pattern"]}`;
+      break;
+    case "not_in_enum":
+      if (Array.isArray(c["values"])) rule = `must be one of ${c["values"].join(", ")}`;
+      break;
+    case "invalid_scheme":
+      if (Array.isArray(c["schemes"])) rule = `scheme must be one of ${c["schemes"].join(", ")}`;
+      break;
+    case "too_few_items":
+      if (typeof c["minItems"] === "number") rule = `must have at least ${c["minItems"]} items`;
+      break;
+    case "too_many_items":
+      if (typeof c["maxItems"] === "number") rule = `must have at most ${c["maxItems"]} items`;
+      break;
+    default:
+      break;
+  }
+  return `${rule ?? GENERIC[code]} (value hidden: secret)`;
 }
 
 /** Strict base-10 integer syntax: no spaces, hex, exponent or fraction. */
@@ -235,4 +300,68 @@ export function intBounds(
 /** Whether a string is a description the contract accepts (at least 5 characters). */
 export function validDescription(d: unknown): d is string {
   return typeof d === "string" && [...d].length >= 5;
+}
+
+/**
+ * The smallest double greater than `x` (`dir` 1) or the largest one below
+ * it (`dir` -1). An exclusive float bound, such as Zod's `.positive()`,
+ * becomes an exact inclusive one: `> 0` is `>= 5e-324`.
+ */
+export function nextFloat(x: number, dir: 1 | -1): number {
+  if (!Number.isFinite(x)) return x;
+  if (x === 0) return dir * Number.MIN_VALUE;
+  const view = new DataView(new ArrayBuffer(8));
+  view.setFloat64(0, x);
+  let bits = view.getBigUint64(0);
+  bits += (x > 0) === (dir > 0) ? 1n : -1n;
+  view.setBigUint64(0, bits);
+  return view.getFloat64(0);
+}
+
+function editDistance(a: string, b: string, limit: number): number {
+  if (Math.abs(a.length - b.length) > limit) return limit + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    prev = cur;
+  }
+  return prev[b.length]!;
+}
+
+/** Variables every shell or runtime sets; never reported as typos. */
+const AMBIENT = new Set([
+  "HOME", "HOST", "HOSTNAME", "PATH", "PWD", "OLDPWD", "USER", "LOGNAME", "SHELL", "TERM", "LANG", "TZ", "TMPDIR",
+  "NODE_ENV", "NODE_OPTIONS", "NODE_PATH", "PORT", "CI", "COLORTERM", "EDITOR", "PAGER", "SHLVL", "MAIL",
+]);
+
+/**
+ * Warnings for set variables that are not declared but look like a typo of
+ * one that is, such as `DATABSE_URL` for `DATABASE_URL`: within edit
+ * distance 2 (1 for names of 5 characters or fewer, where 2 is too loose).
+ * Only names are compared; values are never printed.
+ */
+export function typoWarnings(declared: Iterable<string>, env: Readonly<Record<string, unknown>>): string[] {
+  const names = [...declared];
+  const known = new Set(names);
+  const out: string[] = [];
+  for (const [key, value] of Object.entries(env)) {
+    if (value === undefined || known.has(key) || AMBIENT.has(key) || !ENV_NAME.test(key)) continue;
+    if (key.startsWith("DOCUCONF_") || key.startsWith("npm_")) continue;
+    let best: string | undefined;
+    let bestD = Infinity;
+    for (const name of names) {
+      const limit = Math.min(name.length, key.length) <= 5 ? 1 : 2;
+      const d = editDistance(key, name, limit);
+      // An indexed list item (NAME__0) is not a typo of NAME.
+      if (d <= limit && d < bestD && !key.startsWith(`${name}__`)) {
+        best = name;
+        bestD = d;
+      }
+    }
+    if (best !== undefined) out.push(`${key} is set but not declared; did you mean ${best}?`);
+  }
+  return out.sort();
 }

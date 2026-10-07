@@ -1,7 +1,21 @@
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
   DocuconfDeclarationError,
+  DocuconfValidationError,
+  convertValue,
+  failBoot,
+  nextFloat,
+  secretMessage,
+  typoWarnings,
+  underTestRunner,
+  type ValueDecl,
   GENERIC,
+  charLength,
   VarReport,
   checkContract,
   closeSchema,
@@ -65,7 +79,105 @@ describe("precheckVar", () => {
     const decl: VarBase = { ...port, secret: true };
     const report = new VarReport(decl);
     precheckVar(decl, "12a", report);
-    expect(report.violations[0]!.message).toBe(GENERIC.invalid_type);
+    expect(report.violations[0]!.message).toBe("expected a base-10 integer (value hidden: secret)");
+    expect(report.violations[0]!.message).not.toContain("12a");
+  });
+
+  it("says which rule a secret broke, from the declaration and never the value", () => {
+    const msg = (contract: Record<string, unknown>, type: VarBase["type"], code: Parameters<typeof secretMessage>[1]) =>
+      secretMessage({ type, contract }, code);
+    expect(msg({ schemes: ["postgres"] }, "url", "invalid_scheme")).toBe("scheme must be one of postgres (value hidden: secret)");
+    expect(msg({ minLength: 20 }, "string", "out_of_range")).toBe("must be at least 20 characters long (value hidden: secret)");
+    expect(msg({ pattern: "^sk_" }, "string", "pattern_mismatch")).toBe("must match ^sk_ (value hidden: secret)");
+    expect(msg({}, "url", "invalid_type")).toBe("expected a URL such as scheme://host (value hidden: secret)");
+    expect(msg({ min: 1, max: Number.MAX_SAFE_INTEGER }, "int", "out_of_range")).toBe("must be at least 1 (value hidden: secret)");
+    expect(msg({}, "string", "missing_required")).toBe(GENERIC.missing_required);
+    // A user-written message that quotes the value is never used.
+    const report = new VarReport({ name: "API_KEY", secret: true, type: "string", contract: { minLength: 20 } });
+    report.add("out_of_range", 'too short: "hunter2"');
+    expect(report.violations[0]!.message).toBe("must be at least 20 characters long (value hidden: secret)");
+  });
+});
+
+describe("boot failure", () => {
+  it("prints as the list of problems alone: no stack frames, no property dump", () => {
+    const e = new DocuconfValidationError([{ input: "PORT", kind: "var", code: "out_of_range", message: "must be at least 1" }]);
+    const printed = inspect(e);
+    expect(printed).toBe("docuconf: 1 configuration problem:\n  - PORT [out_of_range]: must be at least 1");
+    expect(e.stack).toBe(e.message);
+    expect(Object.keys(e)).toEqual([]);
+    expect(e.violations).toHaveLength(1);
+    expect(inspect(new DocuconfDeclarationError(["PORT: needs a description"]))).toBe("docuconf: invalid declaration:\n  - PORT: needs a description");
+  });
+
+  it("exits 1 with only the list of problems on stderr", () => {
+    const script = `
+      import { failBoot } from ${JSON.stringify(new URL("../src/index.ts", import.meta.url).href)};
+      failBoot([{ input: "PORT", kind: "var", code: "out_of_range", message: "must be at least 1" }], { exitOnError: true });
+    `;
+    const log = join(mkdtempSync(join(tmpdir(), "docuconf-exit-")), "termination-log");
+    const r = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
+      encoding: "utf8",
+      env: { PATH: process.env["PATH"], DOCUCONF_TERMINATION_LOG: log },
+    });
+    expect(r.status).toBe(1);
+    expect(r.stderr).toBe("docuconf: 1 configuration problem:\n  - PORT [out_of_range]: must be at least 1\n");
+    expect(r.stdout).toBe("");
+    expect(readFileSync(log, "utf8")).toContain("PORT [out_of_range]");
+  });
+
+  it("throws instead of exiting under a test runner", () => {
+    expect(underTestRunner()).toBe(true);
+    expect(() => failBoot([{ input: "P", kind: "var", code: "missing_required", message: "required, but not set" }], { exitOnError: true, terminationLog: false })).toThrow(
+      DocuconfValidationError,
+    );
+  });
+});
+
+describe("typo hints", () => {
+  it("names the declared variable an undeclared one looks like, never the value", () => {
+    const w = typoWarnings(["DATABASE_URL", "WORKER_COUNT", "PORT"], {
+      DATABSE_URL: "postgres://user:hunter2@db/x",
+      WORKERS_COUNT: "8",
+      HOME: "/root",
+      PATH: "/bin",
+      PORTS: "1",
+      UNRELATED_THING: "x",
+      WORKER_COUNT: "4",
+    });
+    expect(w).toEqual([
+      "DATABSE_URL is set but not declared; did you mean DATABASE_URL?",
+      "PORTS is set but not declared; did you mean PORT?",
+      "WORKERS_COUNT is set but not declared; did you mean WORKER_COUNT?",
+    ]);
+    expect(w.join()).not.toContain("hunter2");
+    // Short names only match at distance 1, and indexed list items are not typos.
+    expect(typoWarnings(["HOST_A"], { HOME_B: "x" })).toEqual([]);
+    expect(typoWarnings(["TAGS"], { TAGS__0: "a" })).toEqual([]);
+  });
+});
+
+describe("lists", () => {
+  const decl = (items: "string" | "int"): ValueDecl => ({ name: "L", type: "list", secret: false, required: false, contract: {}, items });
+  it("drops whitespace around csv separators", () => {
+    const r = convertValue(decl("string"), "https://a.com, https://b.com", new VarReport(decl("string")));
+    expect(r.value).toEqual(["https://a.com", "https://b.com"]);
+    expect(convertValue(decl("int"), "1, 2 ,3", new VarReport(decl("int"))).value).toEqual([1, 2, 3]);
+  });
+  it("reports every bad item, quoting the item", () => {
+    const report = new VarReport(decl("int"));
+    convertValue({ ...decl("int"), itemMin: 1 }, "1,0,x", report);
+    expect(report.violations.map((v) => v.message)).toEqual(['item 2: must be at least 1 (got "0")', 'item 3: expected a base-10 integer (got "x")']);
+  });
+});
+
+describe("exclusive float bounds", () => {
+  it("become the nearest inclusive double", () => {
+    expect(nextFloat(0, 1)).toBe(Number.MIN_VALUE);
+    expect(nextFloat(1, 1)).toBe(1 + Number.EPSILON);
+    expect(nextFloat(1, -1)).toBeLessThan(1);
+    expect(nextFloat(-2, 1)).toBeGreaterThan(-2);
+    expect(nextFloat(0, -1)).toBe(-Number.MIN_VALUE);
   });
 });
 
@@ -224,5 +336,62 @@ describe("contract-first mode (SPEC §11.2 item 11)", () => {
         "TAGS: itemMin and itemMax apply to int items only",
       ]);
     }
+  });
+});
+
+describe("length limits (SPEC §4.3 maxLength on url and json, itemMinLength, itemMaxLength)", () => {
+  const contract = {
+    apiVersion: "docuconf.dev/v1alpha1",
+    kind: "ConfigContract",
+    vars: {
+      CALLBACK: { type: "url", description: "Where to report each run", maxLength: 24 },
+      LIMITS: { type: "json", description: "Run limits", maxLength: 16 },
+      BRANCHES: { type: "list", description: "Branch codes", items: "string", itemMinLength: 2, itemMaxLength: 4 },
+      CODES: { type: "list", description: "Branch codes as JSON", items: "string", encoding: "json", itemMaxLength: 4 },
+      DB_URL: { type: "url", description: "Database connection string", secret: true, maxLength: 30 },
+    },
+  };
+  const codes = (env: Record<string, string>) => checkContract(contract, env).violations.map((v) => [v.input, v.code]);
+
+  it("counts code points, not bytes or UTF-16 units", () => {
+    expect(charLength("日本")).toBe(2);
+    expect(charLength("ZÜ01")).toBe(4);
+    expect(charLength("😀")).toBe(1);
+    expect("😀".length).toBe(2);
+  });
+
+  it("checks url and json maxLength, and item lengths in every encoding", () => {
+    expect(codes({ CALLBACK: "https://a.example/runs/4", LIMITS: '{"max":12345678}', BRANCHES: "BE,ZÜ01,日本", CODES: '["😀😀😀😀"]' })).toEqual([]);
+    expect(codes({ CALLBACK: "https://a.example/runs/42" })).toEqual([["CALLBACK", "out_of_range"]]);
+    expect(codes({ LIMITS: '{ "max": 123456 }' })).toEqual([["LIMITS", "out_of_range"]]);
+    expect(codes({ BRANCHES: "BE,B" })).toEqual([["BRANCHES", "out_of_range"]]);
+    expect(codes({ BRANCHES: "😀😀😀😀😀" })).toEqual([["BRANCHES", "out_of_range"]]);
+    expect(codes({ CODES: '["BE","GENEVA"]' })).toEqual([["CODES", "out_of_range"]]);
+  });
+
+  it("reports a too-long secret's length, never its value", () => {
+    const { violations } = checkContract(contract, { DB_URL: "postgres://app:s3cr3t@db:5432/app" });
+    expect(violations).toEqual([{ input: "DB_URL", kind: "var", code: "out_of_range", message: "is 33 characters, above maxLength 30" }]);
+  });
+
+  it("rejects item lengths on an int list, min above max, and negative limits", () => {
+    let error: unknown;
+    try {
+      parseContract({
+        ...contract,
+        vars: {
+          IDS: { type: "list", description: "Record ids", items: "int", itemMaxLength: 4 },
+          TAGS: { type: "list", description: "Some tags", items: "string", itemMinLength: 5, itemMaxLength: 4 },
+          U: { type: "url", description: "Some URL value", maxLength: -1 },
+        },
+      });
+    } catch (e) {
+      error = e;
+    }
+    expect((error as DocuconfDeclarationError).problems).toEqual([
+      "IDS: itemMinLength and itemMaxLength apply to string items only",
+      "TAGS: itemMinLength 5 is above itemMaxLength 4",
+      "U: maxLength must be a non-negative integer",
+    ]);
   });
 });

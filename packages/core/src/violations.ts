@@ -1,5 +1,3 @@
-import { existsSync, writeFileSync } from "node:fs";
-
 /** Stable error codes from SPEC §11.2 item 5. */
 export const ERROR_CODES = [
   "missing_required",
@@ -46,47 +44,35 @@ export function formatViolations(violations: readonly Violation[]): string {
   return `docuconf: ${n} configuration problem${n === 1 ? "" : "s"}:\n${lines.join("\n")}`;
 }
 
-/** Thrown by createEnv when the environment or a file input is invalid. */
+const INSPECT = Symbol.for("nodejs.util.inspect.custom");
+
+/**
+ * Makes an error print as its message alone: no stack frames (they point
+ * into docuconf, never at the user's mistake) and no property dump, when
+ * Node prints an uncaught error, console.log or a framework logger shows it.
+ */
+function plain(e: Error, data: Record<string, unknown>): void {
+  for (const [k, v] of Object.entries({ name: e.name, ...data })) Object.defineProperty(e, k, { value: v, enumerable: false, configurable: true });
+  Object.defineProperty(e, "stack", { value: e.message, enumerable: false, writable: true, configurable: true });
+  Object.defineProperty(e, INSPECT, { value: () => e.message, enumerable: false });
+}
+
+/** Thrown by createEnv or validate when the environment or a file input is invalid. */
 export class DocuconfValidationError extends Error {
-  readonly violations: readonly Violation[];
+  declare readonly violations: readonly Violation[];
   constructor(violations: readonly Violation[]) {
     super(formatViolations(violations));
     this.name = "DocuconfValidationError";
-    this.violations = violations;
+    plain(this, { violations });
   }
 }
 
 /** Thrown when the declaration itself is invalid (SPEC §11.2 item 2). */
 export class DocuconfDeclarationError extends Error {
-  readonly problems: readonly string[];
+  declare readonly problems: readonly string[];
   constructor(problems: readonly string[]) {
     super(`docuconf: invalid declaration:\n${problems.map((p) => `  - ${p}`).join("\n")}`);
     this.name = "DocuconfDeclarationError";
-    this.problems = problems;
-  }
-}
-
-const DEFAULT_TERMINATION_LOG = "/dev/termination-log";
-/** Kubernetes reads at most 4096 bytes of the termination message. */
-const TERMINATION_LOG_LIMIT = 4096;
-
-/**
- * Writes violations to the Kubernetes termination log so `kubectl describe
- * pod` shows them. DOCUCONF_TERMINATION_LOG overrides the path (and is
- * written even if it does not exist yet); the default path is only written
- * when it exists, i.e. inside a container.
- */
-export function writeTerminationLog(message: string, override?: string | false): void {
-  if (override === false) return;
-  const fromEnv = process.env["DOCUCONF_TERMINATION_LOG"];
-  const path = override ?? (fromEnv !== undefined && fromEnv !== "" ? fromEnv : undefined);
-  const target = path ?? DEFAULT_TERMINATION_LOG;
-  if (path === undefined && !existsSync(target)) return;
-  let buf = Buffer.from(message, "utf8");
-  if (buf.length > TERMINATION_LOG_LIMIT) buf = buf.subarray(0, TERMINATION_LOG_LIMIT);
-  try {
-    writeFileSync(target, buf);
-  } catch {
-    // Best effort: the error is still thrown and logged.
+    plain(this, { problems });
   }
 }

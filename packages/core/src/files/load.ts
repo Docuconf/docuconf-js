@@ -79,8 +79,10 @@ export function loadFile(name: string, input: FileInput, ctx: LoadContext, now =
   const report: Report = (code: ErrorCode, message: string) => violations.push({ input: name, kind: "file", code, message });
   const path = resolvePath(input, ctx);
   const required = o.required === true;
+  // Outside a cluster the platform's mounts do not exist; say how to point at local copies.
+  const hint = ctx.root === undefined && isAbsolute(path) ? " (for local development, set DOCUCONF_FILE_ROOT)" : "";
   const missing = (what: string): Loaded => {
-    if (required) report("file_missing", `${what} not found`);
+    if (required) report("file_missing", `${what} not found${hint}`);
     return { value: undefined, violations };
   };
 
@@ -101,8 +103,8 @@ export function loadFile(name: string, input: FileInput, ctx: LoadContext, now =
     const cert = readChecked(join(path, "tls.crt"), `${path}/tls.crt`, o.maxSize, report);
     const key = readChecked(join(path, "tls.key"), `${path}/tls.key`, o.maxSize, report);
     const ca = readChecked(join(path, "ca.crt"), `${path}/ca.crt`, o.maxSize, report);
-    if (cert === "absent") report("file_missing", `${path}/tls.crt not found`);
-    if (key === "absent") report("file_missing", `${path}/tls.key not found`);
+    if (cert === "absent") report("file_missing", `${path}/tls.crt not found${hint}`);
+    if (key === "absent") report("file_missing", `${path}/tls.key not found${hint}`);
     if (!(cert instanceof Buffer) || !(key instanceof Buffer) || ca === "failed") return { value: undefined, violations };
     const parts = checkTls(
       { cert: cert.toString("utf8"), key: key.toString("utf8"), ca: ca instanceof Buffer ? ca.toString("utf8") : undefined },

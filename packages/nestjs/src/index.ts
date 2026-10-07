@@ -16,10 +16,11 @@ export {
   UrlSchemes,
   type DurationOptions,
   type FileNameOption,
+  type JsonOptions,
   type JsonSchemaSource,
   type ListOptions,
 } from "./decorators.ts";
-export { docuconfValidate, type DocuconfValidate, type DocuconfValidateOptions } from "./validate.ts";
+export { docuconfValidate, type CheckOptions, type CheckResult, type DocuconfValidate, type DocuconfValidateOptions } from "./validate.ts";
 export { buildContract, toContract, type ContractOptions, type ContractSourceInput } from "./contract.ts";
 export { declare, type NestDeclaration, type NestVarDecl } from "./declaration.ts";
 export {

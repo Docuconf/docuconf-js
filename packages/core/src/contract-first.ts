@@ -6,9 +6,10 @@
  */
 import { DURATION_ENCODINGS, type DurationEncoding, parseDuration } from "./duration.ts";
 import { re2RegExp } from "./re2.ts";
-import { type JsonCheck, LIST_ENCODINGS, type ListEncoding, type ValueDecl, convertValue } from "./values.ts";
+import { type JsonCheck, LIST_ENCODINGS, type ListEncoding, type ValueDecl, convertValue, itemLengthDeclProblems } from "./values.ts";
 import { ENV_NAME, VarReport, type VarType, precheckVar, validDescription } from "./vars.ts";
-import { DocuconfDeclarationError, DocuconfValidationError, type Violation, formatViolations, writeTerminationLog } from "./violations.ts";
+import { failBoot } from "./termination.ts";
+import { DocuconfDeclarationError, type Violation } from "./violations.ts";
 
 const TYPES: readonly VarType[] = ["string", "int", "float", "bool", "duration", "url", "enum", "list", "json"];
 
@@ -17,7 +18,7 @@ export interface ContractVar extends ValueDecl {
   /** int and float bounds. */
   min?: number | undefined;
   max?: number | undefined;
-  /** string length bounds, in characters (code points). */
+  /** string length bounds, in characters (code points); maxLength also bounds a url or json value. */
   minLength?: number | undefined;
   maxLength?: number | undefined;
   /** string pattern: RE2, matched anywhere unless anchored. */
@@ -135,6 +136,7 @@ function readVar(name: string, raw: unknown, problem: (m: string) => void): Cont
     case "url": {
       const schemes = opt("schemes", isStrings, "a non-empty list of strings");
       v.schemes = schemes?.map((s) => s.toLowerCase());
+      v.maxLength = opt("maxLength", isCount, "a non-negative integer");
       break;
     }
     case "enum":
@@ -155,10 +157,15 @@ function readVar(name: string, raw: unknown, problem: (m: string) => void): Cont
       v.itemMin = opt("itemMin", isInt, "an integer");
       v.itemMax = opt("itemMax", isInt, "an integer");
       if (v.items !== "int" && (v.itemMin !== undefined || v.itemMax !== undefined)) problem("itemMin and itemMax apply to int items only");
+      v.itemMinLength = opt("itemMinLength", isCount, "a non-negative integer");
+      v.itemMaxLength = opt("itemMaxLength", isCount, "a non-negative integer");
+      for (const m of itemLengthDeclProblems(v.items, v)) problem(m);
       break;
     }
-    case "bool":
     case "json":
+      v.maxLength = opt("maxLength", isCount, "a non-negative integer");
+      break;
+    case "bool":
       break;
   }
 
@@ -297,6 +304,8 @@ export interface LoadContractOptions extends ContractCheckOptions {
   env?: Readonly<Record<string, string | undefined>>;
   /** Where to write violations. Default: DOCUCONF_TERMINATION_LOG, else /dev/termination-log if it exists. `false` disables. */
   terminationLog?: string | false;
+  /** On violations, print them and exit 1 instead of throwing (except under a test runner). */
+  exitOnError?: boolean;
 }
 
 /**
@@ -315,9 +324,6 @@ export function loadContract<T extends Record<string, unknown> = Record<string, 
   opts: LoadContractOptions = {},
 ): T {
   const { values, violations } = checkContract(contract, opts.env ?? process.env, opts);
-  if (violations.length > 0) {
-    writeTerminationLog(formatViolations(violations), opts.terminationLog);
-    throw new DocuconfValidationError(violations);
-  }
+  if (violations.length > 0) failBoot(violations, opts);
   return values as T;
 }

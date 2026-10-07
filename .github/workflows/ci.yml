@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      docuconf_go_ref:
+        description: docuconf-go ref to test against (empty = .github/docuconf-go.ref)
+        required: false
+        default: ""
+  # Nightly against docuconf-go main, to catch spec changes before a bump PR.
+  schedule:
+    - cron: "23 5 * * *"
 
 permissions:
   contents: read
@@ -20,10 +29,21 @@ jobs:
       # The contract meta-schema (spec/cue) and the conformance suite
       # (conformance/cases.json) live in docuconf-go; the export tests vet
       # generated contracts against the one, core's tests run the other.
-      - uses: actions/checkout@v4
+      - name: Pick the docuconf-go ref
+        id: dcref
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_REF: ${{ inputs.docuconf_go_ref }}
+        run: |
+          if [ "$EVENT" = schedule ]; then echo "ref=main" >> "$GITHUB_OUTPUT"
+          elif [ -n "$INPUT_REF" ]; then echo "ref=$INPUT_REF" >> "$GITHUB_OUTPUT"
+          else echo "ref=$(tr -d '[:space:]' < .github/docuconf-go.ref)" >> "$GITHUB_OUTPUT"; fi
+      - name: Check out docuconf-go
+        uses: actions/checkout@v4
         with:
           repository: docuconf/docuconf-go
           path: docuconf-go
+          ref: ${{ steps.dcref.outputs.ref }}
 
       - uses: actions/setup-node@v4
         with:
@@ -38,10 +58,17 @@ jobs:
       - name: Install cue
         run: go install cuelang.org/go/cmd/cue@v0.17.1
 
+      # The docuconf-go-facing subset (conformance suite, cue vet of exported
+      # contracts); docuconf-go's downstream workflow runs the same script.
+      - name: Run scripts/conformance.sh
+        run: scripts/conformance.sh
+        env:
+          DOCUCONF_GO_DIR: ${{ github.workspace }}/docuconf-go
       # One install for the workspace: @docuconf/core, @docuconf/t3, @docuconf/nestjs.
       - run: npm ci
       - run: npm run typecheck
       # Every package's tests (vitest projects), against the TypeScript sources.
+      # They include the README checks: every code block is a compiled file.
       - run: npm test
         env:
           DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
@@ -62,6 +89,8 @@ jobs:
       - name: Check the orders examples' contracts
         run: |
           for ex in orders-t3 orders-nestjs; do
+            # Fails with a diff when contract.cue is not what the app exports
+            # (ignoring metadata.generator.version, which release PRs bump).
             npm run export -w "examples/$ex"
             scripts/check-generated.sh "examples/$ex/contract.cue"
             mkdir -p "docuconf-go/spec/cue/$ex"
@@ -74,3 +103,12 @@ jobs:
       # /healthz and /config; start it with PORT=0 and no DATABASE_URL and
       # check it fails with missing_required and out_of_range.
       - run: npm run smoke
+      # The Next.js example, as a user installs it: the packed packages with
+      # Next.js in a temporary copy. next build without server configuration,
+      # next start with valid and invalid configuration, a client component.
+      - name: Next.js example
+        run: |
+          node packages/t3/dist/bin.js export examples/next-t3/src/env.ts --check examples/next-t3/contract.cue
+          mkdir -p docuconf-go/spec/cue/next-t3 && cp examples/next-t3/contract.cue docuconf-go/spec/cue/next-t3/
+          (cd docuconf-go/spec/cue && cue vet -c ./next-t3)
+          bash examples/next-t3/smoke.sh

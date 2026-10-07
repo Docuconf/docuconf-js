@@ -2,7 +2,7 @@
 # Starts the built example (npm run build) with valid env and checks
 # GET /healthz and that GET /config hides the secret; then starts it with
 # PORT=0 and no DATABASE_URL and checks it exits non-zero, naming
-# missing_required and out_of_range.
+# missing_required and out_of_range, and prints only the docuconf list.
 set -euo pipefail
 cd "$(dirname "$0")"
 start=(node dist/main.js)
@@ -37,4 +37,7 @@ echo "smoke: ok: /healthz is ok, /config is $config"
 if "${clean[@]}" PORT=0 timeout 30 "${start[@]}" >"$out" 2>&1; then fail "started with PORT=0 and no DATABASE_URL"; fi
 grep -q missing_required "$out" || fail "no missing_required in the startup output"
 grep -q out_of_range "$out" || fail "no out_of_range in the startup output"
-echo "smoke: ok: PORT=0 without DATABASE_URL exits non-zero with missing_required and out_of_range"
+# exitOnError: the docuconf list alone, with no stack trace.
+[ "$(head -n 1 "$out")" = "docuconf: 2 configuration problems:" ] || fail "the output does not start with the docuconf header"
+[ "$(wc -l <"$out")" -eq 3 ] || fail "the output is not exactly the header and one line per problem"
+echo "smoke: ok: PORT=0 without DATABASE_URL exits 1 with exactly the missing_required and out_of_range lines"

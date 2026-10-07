@@ -38,27 +38,28 @@ curl localhost:8080/config    # {"PORT":8080,"LOG_LEVEL":"info","DATABASE_URL":"
 
 ## When the configuration is wrong
 
-With `PORT=0` and no `DATABASE_URL`, the app does not start. It prints every problem with its error code, and exits
-with status 1:
+With `PORT=0` and no `DATABASE_URL`, the app does not start. With `exitOnError: true` in `createEnv`, it prints every problem with its
+error code, and nothing else, and exits with status 1:
 
 ```console
 $ PORT=0 node dist/server.js
-orders: invalid configuration:
+docuconf: 2 configuration problems:
   - PORT [out_of_range]: Too small: expected number to be >=1 (got "0")
   - DATABASE_URL [missing_required]: required, but not set
 ```
 
-In Kubernetes the same lines go to `/dev/termination-log`, so `kubectl describe pod` shows them.
+In Kubernetes the same lines go to `/dev/termination-log`, so `kubectl describe pod` shows them. `smoke.sh` checks this
+output line by line.
 
 ## Export the contract
 
 ```sh
-npm run export   # docuconf export src/env.ts --out contract.cue
+npm run export   # docuconf-t3 export src/env.ts --out contract.cue
+npm run check    # docuconf-t3 export src/env.ts --check contract.cue: exits 1 with a diff when it is out of date
 ```
 
 In this repository, after a fresh `npm ci && npm run build`, run `npm rebuild --ignore-scripts` once from the root, so
-npm links the `docuconf` command to the build. CI re-exports the contract and fails if it differs from the committed
-file.
+npm links the `docuconf-t3` command to the build. CI runs `npm run check`.
 
 ## Deploy
 

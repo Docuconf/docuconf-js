@@ -50,7 +50,7 @@
   },
   "scripts": {
     "build": "rm -rf dist && tsc -p tsconfig.build.json && tsc -p tsconfig.cjs.json && echo '{ \"type\": \"commonjs\" }' > dist/cjs/package.json && chmod +x dist/esm/bin.js",
-    "typecheck": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p readme/tsconfig.json",
     "test": "vitest run",
     "prepublishOnly": "npm run typecheck && npm test && npm run build",
     "smoke": "bash scripts/smoke-consumer.sh"
