@@ -1,11 +1,16 @@
 import {
-  DocuconfValidationError,
+  DocuconfDeclarationError,
   FileState,
   type LoadContext,
+  type Violation,
+  exitWith,
   exportSession,
+  failBoot,
+  underTestRunner,
   fileRootFrom,
-  formatViolations,
-  writeTerminationLog,
+  redactOnPrint,
+  redactValues,
+  typoWarnings,
 } from "@docuconf/core";
 import { type Class, schemaAdapter } from "./classes.ts";
 import { type NestDeclaration, declare } from "./declaration.ts";
@@ -24,6 +29,29 @@ export interface DocuconfValidateOptions {
   onWarning?: (message: string) => void;
   /** Watch `reload: "watch"` file inputs. Default true. */
   watch?: boolean;
+  /**
+   * On invalid configuration, print `docuconf: N configuration problems:`
+   * with one line per problem to stderr and exit 1, instead of throwing a
+   * DocuconfValidationError for Nest to log. Under a test runner (Vitest,
+   * Jest, node:test) it throws anyway. Default false.
+   */
+  exitOnError?: boolean;
+}
+
+/** Options for `validate.check`. */
+export interface CheckOptions {
+  /** Prefix for absolute file paths, as DOCUCONF_FILE_ROOT. Default: none (DOCUCONF_FILE_ROOT is not read). */
+  fileRoot?: string;
+}
+
+/** What `validate.check` found. */
+export interface CheckResult<T> {
+  /** Typed values of the variables that passed. Secrets included: do not log this object as is. */
+  values: Partial<T>;
+  /** Every problem, as validate would report it. Empty when the map is valid. */
+  violations: Violation[];
+  /** Hints validate would log: deprecated variables, likely typos. */
+  warnings: string[];
 }
 
 /**
@@ -44,6 +72,16 @@ export interface DocuconfValidate<T extends object> {
   reloadFile(name: string): boolean;
   /** Stops watching file inputs. */
   close(): void;
+  /**
+   * Validates an explicit map as `validate` does, without throwing, writing
+   * the termination log or watching files, and without reading
+   * process.env. For tests:
+   *
+   * ```ts
+   * expect(validate.check({ PORT: "0" }).violations.map((v) => v.code)).toContain("out_of_range");
+   * ```
+   */
+  check(config: Record<string, unknown>, opts?: CheckOptions): CheckResult<T>;
 }
 
 const session = exportSession<NestDeclaration>(Symbol.for("docuconf.nestjs.exportSession"));
@@ -76,7 +114,14 @@ function define(target: object, key: string, value: unknown, enumerable: boolean
  * itself throw DocuconfDeclarationError right away.
  */
 export function docuconfValidate<T extends object>(cls: new () => T, opts: DocuconfValidateOptions = {}): DocuconfValidate<T> {
-  const decl = declare(cls as unknown as Class, { name: opts.name, appVersion: opts.appVersion });
+  let decl: NestDeclaration;
+  try {
+    decl = declare(cls as unknown as Class, { name: opts.name, appVersion: opts.appVersion });
+  } catch (e) {
+    // With exitOnError, a broken declaration also prints its problems and exits 1.
+    if (opts.exitOnError === true && e instanceof DocuconfDeclarationError && !session.current() && !underTestRunner()) exitWith(e.message);
+    throw e;
+  }
   session.current()?.declarations.push(decl);
   let state: FileState | undefined;
   const warn = opts.onWarning ?? ((m: string) => console.warn(`docuconf: ${m}`));
@@ -92,6 +137,24 @@ export function docuconfValidate<T extends object>(cls: new () => T, opts: Docuc
     return state;
   };
 
+  const secrets = new Set([...decl.vars.values()].filter((d) => d.secret).map((d) => d.name));
+
+  /** Validates `config` (the environment Nest passes in); reads nothing else but the file root. */
+  const run = (config: Record<string, unknown>, root: string | undefined) => {
+    const env: Record<string, unknown> = { ...config };
+    const instance = new cls() as Record<string, unknown>;
+    const { values, violations } = validateEnv(decl.vars, env, instance);
+    const warnings: string[] = [];
+    for (const [name, d] of decl.vars) {
+      if (d.deprecated && env[name] !== undefined && env[name] !== "") warnings.push(`${name} is deprecated: ${d.deprecated.message}`);
+    }
+    warnings.push(...typoWarnings(decl.vars.keys(), config));
+    const ctx: LoadContext = { env, values, root, adapter: schemaAdapter };
+    const files = new FileState(decl.files, ctx);
+    violations.push(...files.loadAll());
+    return { values, violations, warnings, files };
+  };
+
   const validate = (config: Record<string, unknown>): T => {
     // Export mode: the module is only being loaded for its declaration.
     if (session.current()) return { ...config } as T;
@@ -99,23 +162,12 @@ export function docuconfValidate<T extends object>(cls: new () => T, opts: Docuc
       warned = true;
       for (const w of decl.warnings) warn(w);
     }
-    const env: Record<string, unknown> = { ...config };
-    const instance = new cls() as Record<string, unknown>;
-    const { values, violations } = validateEnv(decl.vars, env, instance);
-    for (const [name, d] of decl.vars) {
-      if (d.deprecated && env[name] !== undefined && env[name] !== "") warn(`${name} is deprecated: ${d.deprecated.message}`);
-    }
-
-    const rootFromEnv = typeof env["DOCUCONF_FILE_ROOT"] === "string" && env["DOCUCONF_FILE_ROOT"] !== "" ? (env["DOCUCONF_FILE_ROOT"] as string) : undefined;
-    const ctx: LoadContext = { env, values, root: fileRootFrom(opts.fileRoot ?? rootFromEnv), adapter: schemaAdapter };
+    const rootFromEnv = typeof config["DOCUCONF_FILE_ROOT"] === "string" && config["DOCUCONF_FILE_ROOT"] !== "" ? (config["DOCUCONF_FILE_ROOT"] as string) : undefined;
     state?.close();
-    const files = new FileState(decl.files, ctx);
-    violations.push(...files.loadAll());
+    const { values, violations, warnings, files } = run(config, fileRootFrom(opts.fileRoot ?? rootFromEnv));
+    for (const w of warnings) warn(w);
 
-    if (violations.length > 0) {
-      writeTerminationLog(formatViolations(violations), opts.terminationLog);
-      throw new DocuconfValidationError(violations);
-    }
+    if (violations.length > 0) failBoot(violations, opts);
     state = files;
 
     // An instance of the class, as the Nest docs' validate returns: typed
@@ -132,8 +184,19 @@ export function docuconfValidate<T extends object>(cls: new () => T, opts: Docuc
     for (const [name, property] of decl.fileProperties) {
       Object.defineProperty(result, property, { get: () => files.get(name), enumerable: false, configurable: true });
     }
+    // console.log(config) and JSON.stringify(config) show the declared
+    // variables, with secrets as [redacted].
+    redactOnPrint(result, () => redactValues(Object.fromEntries([...decl.vars.keys()].map((k) => [k, result[k]])), secrets));
     if (opts.watch !== false) files.watch();
     return result as T;
+  };
+
+  const check = (config: Record<string, unknown>, checkOpts: CheckOptions = {}): CheckResult<T> => {
+    const { values, violations, warnings } = run(config, checkOpts.fileRoot);
+    const failed = new Set(violations.map((v) => v.input));
+    const passed: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(values)) if (!failed.has(k) && v !== undefined) passed[k] = v;
+    return { values: passed as Partial<T>, violations, warnings };
   };
 
   return Object.assign(validate, {
@@ -142,5 +205,6 @@ export function docuconfValidate<T extends object>(cls: new () => T, opts: Docuc
     onFileChange: (name: string, listener: (value: unknown) => void) => current().onChange(inputName(name), listener),
     reloadFile: (name: string) => current().reload(inputName(name)),
     close: () => state?.close(),
+    check,
   }) as DocuconfValidate<T>;
 }

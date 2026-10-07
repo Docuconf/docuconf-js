@@ -155,6 +155,12 @@ export function flattenErrors(errors: readonly ValidationError[], prefix = ""): 
   const out: Array<{ path: string; message: string; constraint: string }> = [];
   for (const e of errors) {
     const path = prefix ? `${prefix}.${e.property}` : e.property;
+    // A missing field fails every constraint on it ("must not be less than
+    // 1; must be an integer number"); what is wrong is that it is missing.
+    if (e.value === undefined && e.constraints !== undefined && (e.children?.length ?? 0) === 0) {
+      out.push({ path, message: "required", constraint: "isDefined" });
+      continue;
+    }
     for (const [constraint, message] of Object.entries(e.constraints ?? {})) {
       out.push({ path, message: stripProperty(message, e.property), constraint });
     }

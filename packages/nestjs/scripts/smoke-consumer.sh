@@ -27,19 +27,14 @@ cat > tsconfig.json <<'JSON'
   "strictPropertyInitialization": false, "skipLibCheck": true, "esModuleInterop": true } }
 JSON
 cat > src/env.validation.ts <<'TS'
-import { IsEnum, IsIn, IsInt, Max, Min } from "class-validator";
+import { IsIn, IsInt, Max, Min } from "class-validator";
 import { ConfigFile, Describe, Duration, Secret, UrlSchemes, docuconfValidate } from "@docuconf/nestjs";
-
-export enum Environment { Development = "development", Production = "production" }
 
 export class Settings {
   @IsIn(["EUR", "USD"]) currency: string;
 }
 
 export class EnvironmentVariables {
-  @IsEnum(Environment) @Describe("Environment the app runs in")
-  NODE_ENV: Environment = Environment.Production;
-
   @IsInt() @Min(1) @Max(65535) @Describe("HTTP listen port")
   PORT: number = 3000;
 
@@ -88,6 +83,8 @@ grep -q "PORT \[invalid_type\]" err.txt && grep -q "DATABASE_URL \[invalid_type\
 npx docuconf-nestjs export src/env.validation.ts --out from-ts.cue 2>/dev/null
 npx docuconf-nestjs export dist/env.validation.js --out from-js.cue 2>/dev/null
 grep -q 'name: "smoke"' from-ts.cue && cmp -s from-ts.cue from-js.cue && echo "ok: docuconf-nestjs export (TypeScript source and compiled CommonJS)"
+npx docuconf-nestjs export src/env.validation.ts --check from-js.cue 2>/dev/null && echo "ok: docuconf-nestjs export --check"
+[ ! -e node_modules/jiti ] && echo "ok: jiti is not installed with the SDK"
 
 # ---- ESM: NestJS 12, .mjs ---------------------------------------------------
 mkdir -p "$work/esm"
@@ -101,7 +98,7 @@ import "reflect-metadata";
 import { Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { Test } from "@nestjs/testing";
-import { IsInt, Max, Min } from "class-validator";
+import { IsInt, IsString, Max, Min } from "class-validator";
 import { Describe, List, docuconfValidate, toContract } from "@docuconf/nestjs";
 
 // Plain JavaScript has no decorator syntax: apply them by hand.
@@ -110,6 +107,7 @@ class Env {
 }
 for (const d of [IsInt(), Min(1), Max(65535), Describe("HTTP listen port")]) d(Env.prototype, "PORT");
 List()(Env.prototype, "ORIGINS");
+IsString({ each: true })(Env.prototype, "ORIGINS");
 Describe("CORS origins")(Env.prototype, "ORIGINS");
 
 const validate = docuconfValidate(Env, { name: "smoke-esm" });
