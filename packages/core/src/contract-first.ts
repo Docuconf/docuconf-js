@@ -181,12 +181,34 @@ export interface ContractCheckOptions {
   validateJson?: JsonCheck;
 }
 
-/** The raw value of a variable: its entry, or for an `indexed` list, NAME__0, NAME__1, ... until one is missing. */
-function rawValue(v: ContractVar, env: Readonly<Record<string, string | undefined>>): unknown {
-  if (v.type !== "list" || v.listEncoding !== "indexed") return env[v.name];
-  const items: string[] = [];
-  for (let i = 0; env[`${v.name}__${i}`] !== undefined; i++) items.push(env[`${v.name}__${i}`]!);
-  return items.length > 0 ? items : undefined;
+/** An indexed item's suffix: a decimal index with no leading zero (SPEC §5). */
+const INDEX = /^(?:0|[1-9][0-9]*)$/;
+
+/**
+ * The raw value of a variable: its entry, or for an `indexed` list its
+ * items NAME__0, NAME__1, ... Other suffixes (NAME__HOST) are not items.
+ * Items must be numbered from 0 with no gap; otherwise `gap` names the
+ * first missing item.
+ */
+function rawValue(
+  v: Pick<ContractVar, "name" | "type" | "listEncoding">,
+  env: Readonly<Record<string, string | undefined>>,
+): { raw: unknown; gap?: undefined } | { raw?: undefined; gap: string } {
+  if (v.type !== "list" || v.listEncoding !== "indexed") return { raw: env[v.name] };
+  const prefix = `${v.name}__`;
+  const items = new Map<number, string>();
+  for (const [k, value] of Object.entries(env)) {
+    if (value === undefined || !k.startsWith(prefix)) continue;
+    const suffix = k.slice(prefix.length);
+    if (INDEX.test(suffix)) items.set(Number(suffix), value);
+  }
+  if (items.size === 0) return { raw: undefined };
+  const out: string[] = [];
+  for (let i = 0; i < items.size; i++) {
+    if (!items.has(i)) return { gap: `${prefix}${i}` };
+    out.push(items.get(i)!);
+  }
+  return { raw: out };
 }
 
 /** Bounds, lengths, patterns, enum values and item counts. */
@@ -244,7 +266,14 @@ export function checkContract(
   for (const [name, v] of decl.vars) {
     const report = new VarReport(v);
     let value: unknown = undefined;
-    const pre = precheckVar(v, rawValue(v, env), report);
+    const raw = rawValue(v, env);
+    if (raw.gap !== undefined) {
+      report.add("invalid_type", `indexed items must be numbered from 0 with no gap, but ${raw.gap} is not set`, true);
+      values[name] = undefined;
+      violations.push(...report.violations);
+      continue;
+    }
+    const pre = precheckVar(v, raw.raw, report);
     if (pre.ok && pre.value === undefined) {
       if (v.default !== undefined) value = v.default;
       else if (v.required) report.add("missing_required", "required, but not set");

@@ -196,6 +196,18 @@ describe("contract-first mode (SPEC §11.2 item 11)", () => {
     expect(JSON.stringify(violations)).not.toContain("hunter2");
   });
 
+  it("reads indexed items from 0 with no gap, and ignores other suffixes", () => {
+    const check = (env: Record<string, string>) => checkContract(contract, { DATABASE_URL: "postgres://db/app", ...env });
+    expect(check({ PARTITIONS__1: "7", PARTITIONS__0: "3", PARTITIONS__HOST: "x", PARTITIONS__01: "9" }).values["PARTITIONS"]).toEqual([3, 7]);
+    for (const env of [{ PARTITIONS__0: "3", PARTITIONS__2: "7" }, { PARTITIONS__1: "7" }] as Record<string, string>[]) {
+      const { values, violations } = check(env);
+      expect(values["PARTITIONS"]).toBeUndefined();
+      expect(violations.map((v) => [v.input, v.code])).toEqual([["PARTITIONS", "invalid_type"]]);
+      expect(violations[0]!.message).toMatch(/^indexed items must be numbered from 0 with no gap, but PARTITIONS__[01] is not set$/);
+    }
+    expect(check({ PARTITIONS__HOST: "x" }).values["PARTITIONS"]).toBeUndefined();
+  });
+
   it("rejects a contract it cannot check", () => {
     expect(() =>
       parseContract({ ...contract, vars: { bad: { type: "list", description: "Some tags", items: "string", itemMax: 3 }, X: { type: "money" } } }),
