@@ -1,7 +1,7 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": { "noEmit": true },
-  "include": ["src", "test", "../../examples/t3", "vitest.config.ts"],
+  "include": ["src", "test", "readme", "../../examples/t3", "vitest.config.ts"],
   // Written for the jiti fallback: extensionless imports and an enum.
   "exclude": ["test/fixtures/jiti-*.ts", "test/fixtures/alias-app", "test/fixtures/typeless"]
 }

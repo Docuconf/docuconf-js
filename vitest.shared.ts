@@ -9,4 +9,6 @@ export const sourceAliases = [
   { find: /^@docuconf\/core\/pure$/, replacement: src("core/src/pure.ts") },
   { find: /^@docuconf\/core$/, replacement: src("core/src/index.ts") },
   { find: /^@docuconf\/nestjs$/, replacement: src("nestjs/src/index.ts") },
+  { find: /^@docuconf\/t3\/next$/, replacement: src("t3/src/next.ts") },
+  { find: /^@docuconf\/t3$/, replacement: src("t3/src/index.ts") },
 ];

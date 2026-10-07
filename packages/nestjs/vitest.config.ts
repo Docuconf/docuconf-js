@@ -3,5 +3,5 @@ import { sourceAliases } from "../../vitest.shared.ts";
 
 export default defineProject({
   resolve: { alias: sourceAliases },
-  test: { name: "nestjs", include: ["test/**/*.test.ts"], testTimeout: 30_000 },
+  test: { name: "nestjs", include: ["test/**/*.test.ts", "readme/**/*.spec.ts"], testTimeout: 30_000 },
 });

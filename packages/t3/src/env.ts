@@ -32,7 +32,7 @@ import { validateVar } from "./validate.ts";
 
 /** Options docuconf adds to T3's createEnv. */
 export interface DocuconfOptions<TFiles extends FileInputs> {
-  /** Service name for the contract (a DNS label). `docuconf export --name` overrides it. */
+  /** Service name for the contract (a DNS label). `docuconf-t3 export --name` overrides it. */
   name?: string;
   /** metadata.appVersion for the contract. */
   appVersion?: string;
@@ -80,7 +80,7 @@ export type DocuconfEnv<TEnv, TFiles extends FileInputs> = TEnv & { readonly fil
 
 /**
  * T3 Env's createEnv, plus docuconf: it records the server schemas for
- * `docuconf export`, checks the declaration, validates the environment and
+ * `docuconf-t3 export`, checks the declaration, validates the environment and
  * file inputs at boot with stable error codes, and exposes loaded files as
  * `env.files`.
  */
@@ -300,7 +300,7 @@ export function getDeclaration(env: object): Declaration {
   return d as Declaration;
 }
 
-/** The contract for an env, as CUE (what `docuconf export` writes). */
+/** The contract for an env, as CUE (what `docuconf-t3 export` writes). */
 export function toContract(env: object, opts?: ContractOptions): string {
   return renderContract(getDeclaration(env), opts);
 }

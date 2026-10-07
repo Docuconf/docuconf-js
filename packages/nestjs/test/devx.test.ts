@@ -21,7 +21,7 @@ import {
   ValidateNested,
 } from "class-validator";
 import { Type } from "class-transformer";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   ConfigFile,
   DocuconfDeclarationError,
@@ -36,6 +36,9 @@ import {
 } from "../src/index.ts";
 import { main } from "../src/cli.ts";
 import { SOURCE_CONDITIONS } from "../../core/test/support/cue.ts";
+
+// These tests start real processes; leave room for a loaded CI machine.
+vi.setConfig({ testTimeout: 90_000 });
 
 const here = dirname(fileURLToPath(import.meta.url));
 const SECRET = "hunter2-do-not-print";

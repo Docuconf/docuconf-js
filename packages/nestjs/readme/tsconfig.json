@@ -1,0 +1,11 @@
+{
+  // Compiles the README's snippets as a Nest app does: legacy decorators,
+  // emitted design types, extensionless relative imports.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "verbatimModuleSyntax": false
+  },
+  "include": ["."]
+}
