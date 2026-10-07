@@ -36,6 +36,9 @@ not an index, such as `NAME__HOST`, is not an item), and durations as `go`, `iso
 `PT1.5S`), `seconds` (`90`, `0.25`) or `timespan` (`[d.]hh:mm:ss[.fffffff]`). Values are typed as in the SDKs: `int`
 and `float` are numbers, durations milliseconds, lists arrays, `json` the parsed value, absent optional variables
 `undefined`. An `int` beyond ±`Number.MAX_SAFE_INTEGER`, as an `int` variable or a list item, is `out_of_range`.
+Length limits (`minLength`/`maxLength` on a `string`, `maxLength` on a `url` or `json` value, `itemMinLength`/`itemMaxLength`
+on each item of a `string` list after splitting) count characters, meaning Unicode code points, not UTF-16 units; a `json`
+value is measured as received, before parsing. They are `out_of_range`, and a secret's message gives only its length.
 
 On failure it throws `DocuconfValidationError` with every violation, after writing them to the termination log.
 Options: `env` (default `process.env`), `terminationLog`, and `validateJson`, a function that checks a `json` value

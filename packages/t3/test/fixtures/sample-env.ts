@@ -37,13 +37,13 @@ export const env = createEnv({
     SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.25).describe("Fraction of requests traced"),
     DEBUG: z.stringbool().default(false).describe("Verbose request logging"),
     REQUEST_TIMEOUT: duration({ min: "1s", max: "5m", default: "30s" }).describe("Upstream request timeout"),
-    PUBLIC_URL: url({ schemes: ["https"] }).describe("Externally visible base URL"),
+    PUBLIC_URL: url({ schemes: ["https"], maxLength: 200 }).describe("Externally visible base URL"),
     LOG_LEVEL: annotate(z.enum(["debug", "info", "warn", "error"]).default("info").describe("Minimum log level emitted"), {
       group: "logging",
     }),
-    ALLOWED_ORIGINS: list(z.string(), { minItems: 1, maxItems: 10 }).describe("CORS origins allowed to call the API"),
+    ALLOWED_ORIGINS: list(z.string(), { minItems: 1, maxItems: 10, itemMinLength: 8, itemMaxLength: 100 }).describe("CORS origins allowed to call the API"),
     WORKER_PORTS: list(z.coerce.number().int().min(1).max(65535), { separator: ";" }).optional().describe("Ports the workers bind"),
-    RATE_LIMITS: json(z.object({ perMinute: z.number().int().min(1), burst: z.number().int().min(0).optional() }))
+    RATE_LIMITS: json(z.object({ perMinute: z.number().int().min(1), burst: z.number().int().min(0).optional() }), { maxLength: 256 })
       .optional()
       .describe("Default per-client rate limits"),
     REGION: z

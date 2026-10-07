@@ -9,7 +9,7 @@ export {
   type DocuconfOptions,
 } from "./env.ts";
 export { annotate, duration, json, list, secret, url } from "./helpers.ts";
-export type { DurationOptions, ListOptions, UrlOptions } from "./helpers.ts";
+export type { DurationOptions, JsonOptions, ListOptions, UrlOptions } from "./helpers.ts";
 export type { Annotations } from "./meta.ts";
 export {
   binaryFile,

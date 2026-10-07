@@ -25,8 +25,12 @@ export {
 } from "./duration.ts";
 export {
   LIST_ENCODINGS,
+  charLength,
   convertValue,
   durationProblem,
+  itemLengthDeclProblems,
+  itemLengthProblem,
+  maxLengthProblem,
   urlProblem,
   type JsonCheck,
   type ListEncoding,

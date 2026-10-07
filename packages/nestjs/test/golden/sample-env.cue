@@ -16,14 +16,16 @@ contract.#Contract & {
 	}
 	vars: {
 		ALLOWED_ORIGINS: {
-			type:        "list"
-			description: "CORS origins allowed to call the API"
-			required:    true
-			items:       "string"
-			encoding:    "csv"
-			separator:   ","
-			minItems:    1
-			maxItems:    10
+			type:          "list"
+			description:   "CORS origins allowed to call the API"
+			required:      true
+			items:         "string"
+			encoding:      "csv"
+			separator:     ","
+			minItems:      1
+			maxItems:      10
+			itemMinLength: 8
+			itemMaxLength: 100
 		}
 		DATABASE_URL: {
 			type:        "url"
@@ -68,10 +70,12 @@ contract.#Contract & {
 			description: "Externally visible base URL"
 			required:    true
 			schemes: ["https"]
+			maxLength: 200
 		}
 		RATE_LIMITS: {
 			type:        "json"
 			description: "Default per-client rate limits"
+			maxLength:   256
 			schema: {
 				type: "object"
 				properties: {
