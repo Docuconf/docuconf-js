@@ -3,8 +3,8 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import * as nodeModule from "node:module";
 import { dirname, join } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
-import { importModule } from "@docuconf/core/loader";
+import { fileURLToPath } from "node:url";
+import { type ImportOptions, importModule } from "@docuconf/core/loader";
 
 /**
  * Nest apps are written with legacy decorators and emitted design types,
@@ -23,14 +23,12 @@ interface TypeScript {
 }
 
 type Hooks = {
-  resolve(specifier: string, context: { parentURL?: string }, next: (s: string, c?: object) => { url: string }): { url: string };
   load(url: string, context: object, next: (u: string, c?: object) => object): object;
 };
 type RegisterHooks = (hooks: Hooks) => { deregister(): void };
 
 const TS_FILE = /\.(c|m)?ts$/;
 let registered = false;
-let generation = 0;
 
 function packageType(file: string): "module" | "commonjs" {
   for (let dir = dirname(file); ; dir = dirname(dir)) {
@@ -61,25 +59,6 @@ function register(ts: TypeScript): boolean {
   if (registered) return true;
   registered = true;
   registerHooks({
-    resolve(specifier, context, next) {
-      try {
-        return next(specifier, context);
-      } catch (e) {
-        const parent = context.parentURL;
-        const relative = specifier.startsWith(".") || specifier.startsWith("/");
-        if (!relative || !parent?.startsWith("file:") || !TS_FILE.test(new URL(parent).pathname)) throw e;
-        // TypeScript-style specifiers: extensionless, a directory, or ".js" naming a ".ts" file.
-        const candidates = [`${specifier}.ts`, `${specifier}/index.ts`, specifier.replace(/\.(c|m)?js$/, ".$1ts")];
-        for (const c of candidates) {
-          try {
-            return next(c, context);
-          } catch {
-            // try the next
-          }
-        }
-        throw e;
-      }
-    },
     load(url, context, next) {
       const path = url.startsWith("file:") ? fileURLToPath(url.split("?")[0]!) : "";
       if (!TS_FILE.test(path) || path.includes("/node_modules/")) return next(url, context);
@@ -104,14 +83,14 @@ function register(ts: TypeScript): boolean {
 }
 
 /**
- * Imports a module for export: `.ts` files through TypeScript when the
- * project has it, everything else (and TypeScript without it) as
- * @docuconf/core's loader does.
+ * Imports a module for export, as @docuconf/core's loader does (tsconfig
+ * `paths` aliases, TypeScript-style relative imports), with `.ts` files
+ * compiled by the project's own TypeScript when it has it.
  */
-export async function importForExport(file: string): Promise<unknown> {
+export async function importForExport(file: string, opts: ImportOptions = {}): Promise<unknown> {
   if (TS_FILE.test(file)) {
     const ts = findTypeScript(file);
-    if (ts && register(ts)) return import(`${pathToFileURL(file).href}?docuconf-export=${++generation}`);
+    if (ts) register(ts);
   }
-  return importModule(file);
+  return importModule(file, opts);
 }

@@ -1,0 +1,7 @@
+{
+  // As create-next-app writes it: "@/*" is the src directory.
+  "compilerOptions": {
+    "strict": true,
+    "paths": { "@/*": ["./src/*"] },
+  },
+}

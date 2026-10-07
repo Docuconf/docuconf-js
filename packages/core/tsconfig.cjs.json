@@ -9,6 +9,6 @@
     "customConditions": null,
     "outDir": "dist/cjs"
   },
-  // The export loader uses dynamic import(), which only the ESM build keeps.
-  "exclude": ["src/loader.ts"]
+  // The export loader and CLI are ESM only (subpaths without a require condition).
+  "exclude": ["src/loader.ts", "src/cli.ts"]
 }

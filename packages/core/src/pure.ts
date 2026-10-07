@@ -94,3 +94,4 @@ export {
 } from "./files/spec.ts";
 export { exportSession, type ExportSession } from "./session.ts";
 export { REDACTED, redactOnPrint, redactValues } from "./redact.ts";
+export { renderMarkdown } from "./docs.ts";
