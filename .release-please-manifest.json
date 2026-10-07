@@ -1,0 +1,5 @@
+{
+  "packages/core": "0.1.0",
+  "packages/t3": "0.1.0",
+  "packages/nestjs": "0.1.0"
+}

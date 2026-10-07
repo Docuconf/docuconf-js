@@ -42,3 +42,11 @@ export function fmtCheck(file: string): { ok: boolean; output: string } {
 
 /** Node flags for running workspace TypeScript sources in a child process. */
 export const SOURCE_CONDITIONS = "--conditions=@docuconf/source";
+
+/**
+ * Replaces the value of metadata.generator.version in an exported contract. It is the SDK version, which every
+ * release PR bumps, so comparisons with committed exports (golden files, example contracts) ignore it.
+ */
+export function withoutGeneratorVersion(contract: string): string {
+  return contract.replace(/(generator:\s*\{[^{}]*?\bversion:\s*)"[^"]*"/g, '$1"<generator-version>"');
+}

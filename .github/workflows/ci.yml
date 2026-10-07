@@ -57,12 +57,13 @@ jobs:
       # The NestJS example compiles against the built packages, as an app would.
       - run: npx tsc -p examples/nestjs --noEmit
       # The orders examples: the committed contract.cue must be the one the
-      # app exports, and must pass the meta-schema.
+      # app exports (except metadata.generator.version, which release PRs
+      # bump), and must pass the meta-schema.
       - name: Check the orders examples' contracts
         run: |
           for ex in orders-t3 orders-nestjs; do
             npm run export -w "examples/$ex"
-            git diff --exit-code -- "examples/$ex/contract.cue"
+            scripts/check-generated.sh "examples/$ex/contract.cue"
             mkdir -p "docuconf-go/spec/cue/$ex"
             cp "examples/$ex/contract.cue" "docuconf-go/spec/cue/$ex/"
             (cd docuconf-go/spec/cue && cue vet -c "./$ex")

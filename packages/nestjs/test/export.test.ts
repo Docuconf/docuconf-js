@@ -6,10 +6,11 @@ import { fileURLToPath } from "node:url";
 import "reflect-metadata";
 import { IsEmail, IsOptional } from "class-validator";
 import { describe, expect, it } from "vitest";
-import { SOURCE_CONDITIONS, canVet, cue, fmtCheck, requireVet, specCue, vet } from "../../core/test/support/cue.ts";
+import { SOURCE_CONDITIONS, canVet, cue, fmtCheck, requireVet, specCue, vet, withoutGeneratorVersion } from "../../core/test/support/cue.ts";
 import { main } from "../src/cli.ts";
 import { exportModule } from "../src/export.ts";
 import { Describe, buildContract, declare, docuconfValidate, toContract } from "../src/index.ts";
+import { SDK_VERSION } from "../src/version.ts";
 import { EnvironmentVariables, validate } from "./fixtures/sample-env.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -30,19 +31,19 @@ describe("export", () => {
       mkdirSync(dirname(golden), { recursive: true });
       writeFileSync(golden, out);
     }
-    expect(out).toBe(readFileSync(golden, "utf8"));
+    expect(withoutGeneratorVersion(out)).toBe(withoutGeneratorVersion(readFileSync(golden, "utf8")));
     expect(validate.declaration.warnings).toEqual([]);
   });
 
   it("names the generator and keeps vars and files sorted", () => {
     const data = buildContract(validate) as { metadata: { generator: unknown }; vars: object; files: object };
-    expect(data.metadata.generator).toEqual({ language: "typescript", sdk: "@docuconf/nestjs", version: "0.1.0" });
+    expect(data.metadata.generator).toEqual({ language: "typescript", sdk: "@docuconf/nestjs", version: SDK_VERSION });
     expect(Object.keys(data.vars)).toEqual([...Object.keys(data.vars)].sort());
     expect(Object.keys(data.files)).toEqual(["geoip", "license", "partner-keystore", "routes", "serving-tls", "upstream-ca"]);
   });
 
   it("exports from the class too, and is deterministic", () => {
-    expect(toContract(EnvironmentVariables, { name: "sample-gateway" })).toBe(readFileSync(golden, "utf8"));
+    expect(withoutGeneratorVersion(toContract(EnvironmentVariables, { name: "sample-gateway" }))).toBe(withoutGeneratorVersion(readFileSync(golden, "utf8")));
     expect(toContract(declare(EnvironmentVariables), { name: "sample-gateway" })).toBe(toContract(validate));
     expect(() => toContract(EnvironmentVariables)).toThrow(/no service name/);
   });
@@ -67,13 +68,13 @@ describe("export", () => {
   it.skipIf(!canVet)("exports the example app to a valid, up-to-date contract", async () => {
     const { cue: out } = await exportModule(join(example, "src/config/env.validation.ts"));
     if (process.env["UPDATE_GOLDEN"] === "1") writeFileSync(join(example, "contract.cue"), out);
-    expect(out).toBe(readFileSync(join(example, "contract.cue"), "utf8"));
+    expect(withoutGeneratorVersion(out)).toBe(withoutGeneratorVersion(readFileSync(join(example, "contract.cue"), "utf8")));
     expect(vet(out).output).toBe("");
   });
 
   it("finds the validate function in a module, also one that calls ConfigModule.forRoot", async () => {
     const { cue: out, warnings } = await exportModule(fixture);
-    expect(out).toBe(readFileSync(golden, "utf8"));
+    expect(withoutGeneratorVersion(out)).toBe(withoutGeneratorVersion(readFileSync(golden, "utf8")));
     expect(warnings).toEqual([]);
     const app = await exportModule(join(here, "fixtures/app.module.ts"), { name: "inline-app" });
     expect(app.cue).toContain('name: "inline-app"');
@@ -104,7 +105,7 @@ describe("export", () => {
 
   it("runs as a real process, compiling decorators with TypeScript", () => {
     const out = execFileSync(process.execPath, ["--no-warnings", SOURCE_CONDITIONS, bin, "export", fixture], { encoding: "utf8" });
-    expect(out).toBe(readFileSync(golden, "utf8"));
+    expect(withoutGeneratorVersion(out)).toBe(withoutGeneratorVersion(readFileSync(golden, "utf8")));
   });
 
   it("warns about constraints the contract cannot express", () => {

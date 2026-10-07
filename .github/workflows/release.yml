@@ -10,6 +10,7 @@ name: Release
 on:
   push:
     tags: ["v*", "nestjs-v*", "core-v*"]
+  workflow_dispatch:
 
 permissions:
   contents: read
