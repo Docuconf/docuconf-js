@@ -40,49 +40,28 @@ curl localhost:8080/config    # {"PORT":8080,"LOG_LEVEL":"info","DATABASE_URL":"
 
 ## When the configuration is wrong
 
-With `PORT=0` and no `DATABASE_URL`, the app does not start. `validate` throws a `DocuconfValidationError` listing every
-problem with its error code, Nest logs it, and the process exits with status 1:
+With `PORT=0` and no `DATABASE_URL`, the app does not start. With `docuconfValidate(OrdersConfig, { name: "orders", exitOnError: true })`, it prints every problem with its
+error code, and nothing else, and exits with status 1:
 
 ```console
 $ PORT=0 node dist/main.js
-[Nest] 31796  - 10/07/2026, 12:14:23 AM     LOG [NestFactory] Starting Nest application...
-[Nest] 31796  - 10/07/2026, 12:14:23 AM   ERROR [ExceptionHandler] DocuconfValidationError: docuconf: 2 configuration problems:
+docuconf: 2 configuration problems:
   - PORT [out_of_range]: must not be less than 1 (got "0")
   - DATABASE_URL [missing_required]: required, but not set
-    at Object.validate (file:///home/user/docuconf-js/packages/nestjs/dist/esm/validate.js:72:19)
-    at ConfigModule.forRoot (file:///home/user/docuconf-js/node_modules/@nestjs/config/dist/config.module.js:53:45)
-    at file:///home/user/docuconf-js/examples/orders-nestjs/dist/app.module.js:17:32
-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
-    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
-    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
-  violations: [
-    {
-      input: 'PORT',
-      kind: 'var',
-      code: 'out_of_range',
-      message: 'must not be less than 1 (got "0")'
-    },
-    {
-      input: 'DATABASE_URL',
-      kind: 'var',
-      code: 'missing_required',
-      message: 'required, but not set'
-    }
-  ]
-}
 ```
 
-In Kubernetes the same lines go to `/dev/termination-log`, so `kubectl describe pod` shows them.
+In Kubernetes the same lines go to `/dev/termination-log`, so `kubectl describe pod` shows them. `smoke.sh` checks this
+output line by line.
 
 ## Export the contract
 
 ```sh
 npm run export   # docuconf-nestjs export src/orders.config.ts --out contract.cue
+npm run check    # docuconf-nestjs export src/orders.config.ts --check contract.cue: exits 1 with a diff when it is out of date
 ```
 
 In this repository, after a fresh `npm ci && npm run build`, run `npm rebuild --ignore-scripts` once from the root, so
-npm links the `docuconf-nestjs` command to the build. CI re-exports the contract and fails if it differs from the committed
-file.
+npm links the `docuconf-nestjs` command to the build. CI runs `npm run check`.
 
 ## Deploy
 

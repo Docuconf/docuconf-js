@@ -32,4 +32,5 @@ export class OrdersConfig {
   WORKER_COUNT: number = 4;
 }
 
-export const validate = docuconfValidate(OrdersConfig, { name: "orders" });
+// exitOnError: on invalid configuration, print every problem and exit 1.
+export const validate = docuconfValidate(OrdersConfig, { name: "orders", exitOnError: true });

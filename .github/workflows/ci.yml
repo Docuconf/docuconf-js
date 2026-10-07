@@ -42,6 +42,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       # Every package's tests (vitest projects), against the TypeScript sources.
+      # They include the README checks: every code block is a compiled file.
       - run: npm test
         env:
           DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
@@ -61,8 +62,8 @@ jobs:
       - name: Check the orders examples' contracts
         run: |
           for ex in orders-t3 orders-nestjs; do
-            npm run export -w "examples/$ex"
-            git diff --exit-code -- "examples/$ex/contract.cue"
+            # Fails with a diff when contract.cue is not what the app exports.
+            npm run check -w "examples/$ex"
             mkdir -p "docuconf-go/spec/cue/$ex"
             cp "examples/$ex/contract.cue" "docuconf-go/spec/cue/$ex/"
             (cd docuconf-go/spec/cue && cue vet -c "./$ex")
@@ -73,3 +74,12 @@ jobs:
       # /healthz and /config; start it with PORT=0 and no DATABASE_URL and
       # check it fails with missing_required and out_of_range.
       - run: npm run smoke
+      # The Next.js example, as a user installs it: the packed packages with
+      # Next.js in a temporary copy. next build without server configuration,
+      # next start with valid and invalid configuration, a client component.
+      - name: Next.js example
+        run: |
+          node packages/t3/dist/bin.js export examples/next-t3/src/env.ts --check examples/next-t3/contract.cue
+          mkdir -p docuconf-go/spec/cue/next-t3 && cp examples/next-t3/contract.cue docuconf-go/spec/cue/next-t3/
+          (cd docuconf-go/spec/cue && cue vet -c ./next-t3)
+          bash examples/next-t3/smoke.sh
