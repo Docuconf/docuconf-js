@@ -23,14 +23,22 @@
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "browser": "./dist/browser.js",
+      "edge-light": "./dist/browser.js",
+      "worker": "./dist/browser.js",
+      "workerd": "./dist/browser.js",
       "default": "./dist/index.js"
+    },
+    "./next": {
+      "types": "./dist/next.d.ts",
+      "default": "./dist/next.js"
     },
     "./package.json": "./package.json"
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "docuconf": "dist/bin.js"
+    "docuconf-t3": "dist/bin.js"
   },
   "files": [
     "dist",

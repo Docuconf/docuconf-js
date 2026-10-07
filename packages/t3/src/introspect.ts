@@ -6,9 +6,10 @@ import {
   cleanPattern,
   contractDefault,
   intBounds,
+  nextFloat,
   nonRe2Feature,
   wireValue,
-} from "@docuconf/core";
+} from "@docuconf/core/pure";
 import type { StandardSchemaV1 } from "@t3-oss/env-core";
 import { type JsonSchema, jsonSchemaOf, validateSync } from "./jsonschema.ts";
 import {
@@ -62,7 +63,9 @@ export function describeVar(
   checkVarName(name, problems, warnings);
   const inJs = jsonSchemaOf(schema, "input");
   if (!inJs) {
-    problems.push(`${name}: the schema cannot be converted to JSON Schema, so it cannot be exported`);
+    problems.push(
+      `${name}: cannot export: this schema has no Standard JSON Schema (~standard.jsonSchema). Zod 4 and ArkType schemas have one; for Valibot, wrap the schema in toStandardJsonSchema() from @valibot/to-json-schema.`,
+    );
     return undefined;
   }
   const outJs = jsonSchemaOf(schema, "output");
@@ -73,9 +76,7 @@ export function describeVar(
 
   const type = detectType(inJs, outJs, meta);
   if (!type) {
-    problems.push(
-      `${name}: unsupported schema (JSON Schema type ${JSON.stringify(inJs["type"])}). Use a string, number, z.stringbool(), z.enum, url(), duration(), list() or json().`,
-    );
+    problems.push(`${name}: ${unsupportedHint(schema, inJs)}`);
     return undefined;
   }
 
@@ -106,6 +107,12 @@ export function describeVar(
   }
 
   const decl: VarDecl = { name, schema, type, secret: isSecret, required, contract: c };
+
+  // Environment values are strings: z.number() (without coerce) rejects
+  // every one of them, so the variable could never be set.
+  if ((type === "int" || type === "float") && !meta && validateSync(schema, "1").issues !== undefined && validateSync(schema, 1).issues === undefined) {
+    problems.push(`${name}: z.number() receives strings from the environment and always fails; use z.coerce.number()${type === "int" ? ".int()" : ""}`);
+  }
 
   switch (type) {
     case "string": {
@@ -139,11 +146,12 @@ export function describeVar(
     }
     case "float": {
       const js = outJs?.["type"] === "number" ? outJs : inJs;
-      const min = num(js, "minimum") ?? num(js, "exclusiveMinimum");
-      const max = num(js, "maximum") ?? num(js, "exclusiveMaximum");
-      if (num(js, "exclusiveMinimum") !== undefined || num(js, "exclusiveMaximum") !== undefined) {
-        warnings.push(`${name}: exclusive bounds are exported as inclusive min/max`);
-      }
+      // An exclusive bound (.positive(), .gt()) is exported as the nearest
+      // double inside it, so the platform rejects exactly what the app does.
+      const exMin = num(js, "exclusiveMinimum");
+      const exMax = num(js, "exclusiveMaximum");
+      const min = num(js, "minimum") ?? (exMin === undefined ? undefined : nextFloat(exMin, 1));
+      const max = num(js, "maximum") ?? (exMax === undefined ? undefined : nextFloat(exMax, -1));
       if (min !== undefined) c["min"] = min;
       if (max !== undefined) c["max"] = max;
       break;
@@ -209,7 +217,7 @@ export function describeVar(
     } else {
       const d = contractDefault(type, defaultOut);
       if (d === undefined) {
-        problems.push(`${name}: default ${JSON.stringify(defaultOut)} does not fit type ${type}`);
+        problems.push(`${name}: ${defaultHint(type, defaultOut)}`);
       } else {
         // SPEC §4.3: the default must satisfy the variable's own constraints.
         const wire = type === "duration" ? (d as string) : wireValue(decl, d);
@@ -233,4 +241,49 @@ function zodUrlProtocol(schema: unknown, depth = 0): boolean {
   const checks = (def["checks"] as Array<{ _zod?: { def?: Record<string, unknown> } }> | undefined) ?? [];
   if (checks.some((c) => c._zod?.def?.["protocol"] !== undefined)) return true;
   return ["innerType", "in", "schema"].some((k) => def[k] !== undefined && zodUrlProtocol(def[k], depth + 1));
+}
+
+/** Why a default does not fit, and what to write instead. */
+function defaultHint(type: VarType, value: unknown): string {
+  const shown = JSON.stringify(value);
+  if (type === "duration" && typeof value === "string") {
+    return `default ${shown} does not fit type duration: Zod's .default() takes the parsed value (milliseconds). Use duration({ default: ${shown} }), or .default(${Number.isFinite(Number(value)) ? value : "30_000"})`;
+  }
+  if ((type === "int" || type === "float") && typeof value === "string") {
+    return `default ${shown} does not fit type ${type}: .default() takes the parsed value; write .default(${Number(value)}) without quotes`;
+  }
+  if (type === "list" && typeof value === "string") {
+    return `default ${shown} does not fit type list: .default() takes the parsed value; write .default(${JSON.stringify(value.split(","))})`;
+  }
+  if (type === "bool" && typeof value === "string") {
+    return `default ${shown} does not fit type bool: .default() takes the parsed value; write .default(${value === "true"})`;
+  }
+  return `default ${shown} does not fit type ${type}`;
+}
+
+/** The Zod type under wrappers (optional, default, pipe), such as "union" or "date". */
+function zodKind(schema: unknown, depth = 0): string | undefined {
+  const def = (schema as { _zod?: { def?: Record<string, unknown> } })?._zod?.def;
+  if (!def || depth > 10) return undefined;
+  const t = def["type"] as string | undefined;
+  if (t === "optional" || t === "default" || t === "prefault" || t === "readonly" || t === "catch") return zodKind(def["innerType"], depth + 1);
+  if (t === "pipe") return zodKind(def["in"], depth + 1) ?? zodKind(def["out"], depth + 1);
+  return t;
+}
+
+/** What to use instead of a schema that maps to no contract type. */
+function unsupportedHint(schema: StandardSchemaV1, inJs: JsonSchema): string {
+  const kind = zodKind(schema);
+  const types = Array.isArray(inJs["type"]) ? (inJs["type"] as unknown[]) : [];
+  if (kind === "nullable" || types.includes("null") || (Array.isArray(inJs["anyOf"]) && (inJs["anyOf"] as JsonSchema[]).some((s) => s["type"] === "null"))) {
+    return ".nullable() has no meaning for an env var (an unset variable is undefined, never null); use .optional()";
+  }
+  if (kind === "union" || Array.isArray(inJs["anyOf"]) || Array.isArray(inJs["oneOf"])) {
+    return 'z.union() is not supported; for a choice of strings use z.enum(["a", "b"])';
+  }
+  if (kind === "date") return "dates are not a contract type; use z.string() for an ISO 8601 date, or duration() for a span of time";
+  if (kind === "object" || kind === "array" || inJs["type"] === "object" || inJs["type"] === "array") {
+    return "objects and arrays come in one variable as JSON or a list: use json(schema) or list(item)";
+  }
+  return "unsupported schema; use z.string(), z.coerce.number(), z.stringbool(), z.enum([...]), url(), duration(), list() or json()";
 }

@@ -255,7 +255,8 @@ describe("int list item bounds (SPEC §4.3 itemMin, itemMax)", () => {
     expect(run({ SHARDS: "3,-1" })).toEqual([["SHARDS", "out_of_range"]]);
     expect(run({ SHARDS: "1024" })).toEqual([["SHARDS", "out_of_range"]]);
     expect(run({ IDS: "1,9007199254740993" })).toEqual([["IDS", "out_of_range"]]);
-    expect(run({ IDS: "1, 2" })).toEqual([["IDS", "invalid_type"]]);
+    expect(run({ IDS: "1, 2" })).toEqual([]);
+    expect(run({ IDS: "1,x,y" })).toEqual([["IDS", "invalid_type"], ["IDS", "invalid_type"]]);
     expect(run({ IDS: "0x10" })).toEqual([["IDS", "invalid_type"]]);
     expect(run({ SHARDS: "0,7,1023", IDS: "-5" })).toEqual([]);
   });

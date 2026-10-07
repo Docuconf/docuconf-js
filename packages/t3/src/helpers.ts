@@ -8,8 +8,9 @@ import {
   formatDuration,
   intItem,
   parseDuration,
+  splitCsv,
   urlProblem,
-} from "@docuconf/core";
+} from "@docuconf/core/pure";
 import { contractSchema, jsonSchemaOf } from "./jsonschema.ts";
 import {
   ANNOTATIONS_KEY,
@@ -153,16 +154,19 @@ export function list<T extends z.ZodType>(item: T, opts: ListOptions = {}): z.Zo
     .string()
     .meta(typeMeta(meta))
     .transform((v, ctx) => {
-      const parts = v.split(separator);
+      // Whitespace around separators is dropped, as SPEC §5 allows.
+      const parts = splitCsv(v, separator);
       if (items === "int") {
         // Strict base-10 items: z.coerce.number() alone takes " 5", "0x5" and "5e0".
+        let bad = false;
         for (const [i, part] of parts.entries()) {
           const r = intItem(part, {});
           if ("code" in r && r.code === "invalid_type") {
-            ctx.addIssue(issue("invalid_type", `item ${i + 1}: ${r.message}`, v));
-            return z.NEVER;
+            ctx.addIssue({ ...issue("invalid_type", r.message, part), path: [i] });
+            bad = true;
           }
         }
+        if (bad) return z.NEVER;
       }
       return parts;
     })

@@ -1,5 +1,5 @@
 import * as z from "zod";
-import { type JsonSchema, type SchemaAdapter, closeSchema } from "@docuconf/core";
+import { type JsonSchema, type SchemaAdapter, closeSchema } from "@docuconf/core/pure";
 import type { StandardSchemaV1 } from "@t3-oss/env-core";
 
 export type { JsonSchema };
