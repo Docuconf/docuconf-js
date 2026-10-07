@@ -3,7 +3,7 @@ import {
   DocuconfDeclarationError,
   ENV_NAME,
   type FileInput,
-  type VarBase,
+  type ValueDecl,
   type VarType,
   canonicalDuration,
   checkVarName,
@@ -21,18 +21,12 @@ import { type JsonSchemaSource, type PropertyMeta, docuconfMetadata } from "./de
 import { validateEnv } from "./env.ts";
 
 /** A variable read from a class-validator property, plus what the validator needs. */
-export interface NestVarDecl extends VarBase {
+export interface NestVarDecl extends ValueDecl {
   /** The property, which is also the variable name. */
   property: string;
   constraints: Constraint[];
   /** The parsed default (milliseconds for durations), when the variable has one. */
   default: unknown;
-  durationMin?: number;
-  durationMax?: number;
-  /** Lowercase URL schemes. */
-  schemes?: string[];
-  /** List item type. */
-  items?: "string" | "int";
   jsonSchema?: JsonSchemaSource;
   deprecated?: { message: string; replacedBy?: string };
 }
@@ -241,6 +235,26 @@ function describeVar(
       const maxItems = num(cs, "arrayMaxSize");
       if (minItems !== undefined) c["minItems"] = minItems;
       if (maxItems !== undefined) c["maxItems"] = maxItems;
+      if (items === "int") {
+        // @Min(0, { each: true }) and friends bound each item (SPEC §4.3).
+        const each = (n: string) => {
+          const v = find(cs, n, true)?.constraints[0];
+          return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+        };
+        const { min, max } = intBounds(
+          name,
+          {
+            min: each("min"),
+            max: each("max"),
+            exclusiveMin: has(cs, "isPositive", true) ? 0 : undefined,
+            exclusiveMax: has(cs, "isNegative", true) ? 0 : undefined,
+          },
+          warnings,
+          { min: "itemMin", max: "itemMax" },
+        );
+        c["itemMin"] = decl.itemMin = min;
+        c["itemMax"] = decl.itemMax = max;
+      }
       break;
     }
     case "json": {

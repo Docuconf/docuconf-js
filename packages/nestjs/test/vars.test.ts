@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import "reflect-metadata";
-import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsString, Matches, Max, Min } from "class-validator";
+import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsPositive, IsString, Matches, Max, Min } from "class-validator";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   Deprecated,
@@ -241,5 +241,35 @@ describe("boot validation of variables", () => {
 
   it("accepts already-typed values, as a load() factory or a test might pass", () => {
     expect(validate({ ...good, PORT: 9090, DEBUG: false }).PORT).toBe(9090);
+  });
+});
+
+describe("int list item bounds (SPEC §4.3 itemMin, itemMax)", () => {
+  class Items {
+    @IsOptional() @List() @IsInt({ each: true }) @Min(0, { each: true }) @Max(1023, { each: true }) @Describe("Shard ids")
+    SHARDS?: number[];
+
+    @IsOptional() @List() @IsInt({ each: true }) @Describe("Record ids")
+    IDS?: number[];
+
+    @IsOptional() @List() @IsInt({ each: true }) @IsPositive({ each: true }) @Describe("Positive ids")
+    POSITIVE?: number[];
+  }
+  const v = docuconfValidate(Items, { terminationLog: false, onWarning: () => {} });
+
+  it("exports @Min and @Max with each: true, capped at safe integers", () => {
+    const c = (n: string) => v.declaration.vars.get(n)!.contract;
+    expect(c("SHARDS")).toMatchObject({ itemMin: 0, itemMax: 1023 });
+    expect(c("IDS")).toMatchObject({ itemMin: -Number.MAX_SAFE_INTEGER, itemMax: Number.MAX_SAFE_INTEGER });
+    expect(c("POSITIVE")).toMatchObject({ itemMin: 1, itemMax: Number.MAX_SAFE_INTEGER });
+  });
+
+  it("reports an item out of bounds or beyond safe integers as out_of_range", () => {
+    expect(codes(failure({ SHARDS: "3,-1" }, v))).toEqual([["SHARDS", "out_of_range"]]);
+    expect(codes(failure({ SHARDS: "1024" }, v))).toEqual([["SHARDS", "out_of_range"]]);
+    expect(codes(failure({ IDS: "1,9007199254740993" }, v))).toEqual([["IDS", "out_of_range"]]);
+    expect(codes(failure({ IDS: "1,x" }, v))).toEqual([["IDS", "invalid_type"]]);
+    expect(codes(failure({ POSITIVE: "0" }, v))).toEqual([["POSITIVE", "out_of_range"]]);
+    expect(v({ SHARDS: "0,7,1023", IDS: "-5" })).toMatchObject({ SHARDS: [0, 7, 1023], IDS: [-5] });
   });
 });

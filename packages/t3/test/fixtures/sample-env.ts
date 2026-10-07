@@ -42,7 +42,7 @@ export const env = createEnv({
       group: "logging",
     }),
     ALLOWED_ORIGINS: list(z.string(), { minItems: 1, maxItems: 10 }).describe("CORS origins allowed to call the API"),
-    WORKER_PORTS: list(z.coerce.number().int(), { separator: ";" }).optional().describe("Ports the workers bind"),
+    WORKER_PORTS: list(z.coerce.number().int().min(1).max(65535), { separator: ";" }).optional().describe("Ports the workers bind"),
     RATE_LIMITS: json(z.object({ perMinute: z.number().int().min(1), burst: z.number().int().min(0).optional() }))
       .optional()
       .describe("Default per-client rate limits"),

@@ -10,22 +10,47 @@ export {
   type Generator,
 } from "./contract.ts";
 export { cueFields, cueLabel, cueValue } from "./cue.ts";
-export { CONTRACT_DURATION, canonicalDuration, formatDuration, parseDuration } from "./duration.ts";
+export {
+  CONTRACT_DURATION,
+  DURATION_ENCODINGS,
+  DURATION_EXAMPLE,
+  canonicalDuration,
+  formatDuration,
+  parseDuration,
+  parseDurationAs,
+  parseIso8601Duration,
+  parseSecondsDuration,
+  parseTimespan,
+  type DurationEncoding,
+} from "./duration.ts";
+export {
+  LIST_ENCODINGS,
+  convertValue,
+  durationProblem,
+  urlProblem,
+  type JsonCheck,
+  type ListEncoding,
+  type Problem,
+  type ValueDecl,
+} from "./values.ts";
 export { closeSchema, type JsonSchema } from "./jsonschema.ts";
-export { cleanPattern, nonRe2Feature } from "./re2.ts";
+export { cleanPattern, nonRe2Feature, re2RegExp } from "./re2.ts";
 export {
   ENV_NAME,
   GENERIC,
   INJECTOR_PREFIXES,
+  INT_SYNTAX,
   VarReport,
   checkVarName,
   contractDefault,
   injectorScheme,
   intBounds,
+  intItem,
   precheckVar,
   preprocess,
   validDescription,
   wireValue,
+  type ItemBounds,
   type VarBase,
   type VarType,
 } from "./vars.ts";
@@ -68,3 +93,12 @@ export {
 } from "./files/spec.ts";
 export { TlsMaterialHolder, checkCaBundle, checkTls, parseCertificates, type TlsCheckOptions, type TlsParts } from "./files/tls.ts";
 export { exportSession, type ExportSession } from "./session.ts";
+export {
+  checkContract,
+  loadContract,
+  parseContract,
+  type ContractCheckOptions,
+  type ContractDeclaration,
+  type ContractVar,
+  type LoadContractOptions,
+} from "./contract-first.ts";

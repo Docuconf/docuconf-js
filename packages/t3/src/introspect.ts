@@ -188,6 +188,11 @@ export function describeVar(
       c["separator"] = m.separator;
       if (m.minItems !== undefined) c["minItems"] = m.minItems;
       if (m.maxItems !== undefined) c["maxItems"] = m.maxItems;
+      if (m.items === "int") {
+        const { min, max } = intBounds(name, m.itemBounds ?? {}, warnings, { min: "itemMin", max: "itemMax" });
+        c["itemMin"] = min;
+        c["itemMax"] = max;
+      }
       decl.separator = m.separator;
       break;
     }

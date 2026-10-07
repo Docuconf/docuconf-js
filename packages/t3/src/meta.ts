@@ -23,6 +23,8 @@ export type DocuconfTypeMeta =
       separator: string;
       minItems?: number;
       maxItems?: number;
+      /** For int items: the item schema's bounds, from its JSON Schema. */
+      itemBounds?: { min?: number; max?: number; exclusiveMin?: number; exclusiveMax?: number };
     }
   | { type: "url"; schemes?: string[] }
   | { type: "json"; schema: Record<string, unknown> };

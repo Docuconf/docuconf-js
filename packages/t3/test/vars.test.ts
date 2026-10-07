@@ -7,6 +7,7 @@ import {
   DocuconfValidationError,
   type ErrorCode,
   createEnv,
+  getDeclaration,
   duration,
   json,
   list,
@@ -221,5 +222,48 @@ describe("boot validation of variables", () => {
   it("skips validation when T3's skipValidation is set", () => {
     const env = createEnv({ server, runtimeEnv: {}, skipValidation: true, onWarning: () => {} });
     expect(env.PORT).toBeUndefined();
+  });
+});
+
+describe("int list item bounds (SPEC §4.3 itemMin, itemMax)", () => {
+  const items = {
+    SHARDS: list(z.coerce.number().int().min(0).max(1023)).optional().describe("Shard ids"),
+    PARTITIONS: list(z.int32()).optional().describe("Partitions to consume"),
+    IDS: list(z.coerce.number().int()).optional().describe("Record ids"),
+    POSITIVE: list(z.coerce.number().int().positive()).optional().describe("Positive ids"),
+  };
+  const contractOf = (env: object) => getDeclaration(env).vars;
+
+  it("exports the item schema's range, capped at safe integers", () => {
+    const env = createEnv({ server: items, runtimeEnv: {}, terminationLog: false, onWarning: () => {} });
+    const c = (n: string) => contractOf(env).get(n)!.contract;
+    expect(c("SHARDS")).toMatchObject({ itemMin: 0, itemMax: 1023 });
+    expect(c("PARTITIONS")).toMatchObject({ itemMin: -2147483648, itemMax: 2147483647 });
+    expect(c("IDS")).toMatchObject({ itemMin: -Number.MAX_SAFE_INTEGER, itemMax: Number.MAX_SAFE_INTEGER });
+    expect(c("POSITIVE")).toMatchObject({ itemMin: 1, itemMax: Number.MAX_SAFE_INTEGER });
+  });
+
+  it("reports an item out of bounds or beyond safe integers as out_of_range", () => {
+    const run = (env: Record<string, string>) => {
+      try {
+        createEnv({ server: items, runtimeEnv: env, terminationLog: false, onWarning: () => {} });
+      } catch (e) {
+        return codes(e as DocuconfValidationError);
+      }
+      return [];
+    };
+    expect(run({ SHARDS: "3,-1" })).toEqual([["SHARDS", "out_of_range"]]);
+    expect(run({ SHARDS: "1024" })).toEqual([["SHARDS", "out_of_range"]]);
+    expect(run({ IDS: "1,9007199254740993" })).toEqual([["IDS", "out_of_range"]]);
+    expect(run({ IDS: "1, 2" })).toEqual([["IDS", "invalid_type"]]);
+    expect(run({ IDS: "0x10" })).toEqual([["IDS", "invalid_type"]]);
+    expect(run({ SHARDS: "0,7,1023", IDS: "-5" })).toEqual([]);
+  });
+});
+
+describe("durations", () => {
+  it("rejects a negative duration, which no contract can express", () => {
+    expect(codes(failure({ ...good, TIMEOUT: "-5s" }))).toEqual([["TIMEOUT", "invalid_type"]]);
+    expect(codes(failure({ ...good, TIMEOUT: "6m" }))).toEqual([["TIMEOUT", "out_of_range"]]);
   });
 });
