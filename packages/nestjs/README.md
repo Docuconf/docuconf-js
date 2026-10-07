@@ -223,10 +223,10 @@ Every property with class-validator decorators or `@Describe` is a variable name
 | `float` | `@IsNumber()`, with `@Min`, `@Max` | `number` |
 | `bool` | `@IsBoolean()` | `boolean` |
 | `duration` | `@Duration({ min, max, default })`, Go syntax (`30s`, `1m30s`) | `number` (milliseconds) |
-| `url` | `@UrlSchemes("https", ...)`, or `@IsUrl({ protocols, require_tld: false })` | `string` |
+| `url` | `@UrlSchemes("https", ...)`, or `@IsUrl({ protocols, require_tld: false })`; `@MaxLength` | `string` |
 | `enum` | `@IsEnum(StringEnum)` or `@IsIn([...])` | the enum |
-| `list` | `@List({ separator })` and items `@IsString({ each: true })` or `@IsInt({ each: true })`; int items bounded with `@Min`, `@Max`, `@IsPositive`, `@IsNegative` and `{ each: true }`; `@ArrayMinSize`, `@ArrayMaxSize` | `string[]` or `number[]` |
-| `json` | `@Json(SomeClass)`, validated with that class's decorators | `SomeClass` |
+| `list` | `@List({ separator })` and items `@IsString({ each: true })` or `@IsInt({ each: true })`; int items bounded with `@Min`, `@Max`, `@IsPositive`, `@IsNegative` and `{ each: true }`, string items with `@MinLength`, `@MaxLength`, `@Length` and `{ each: true }`; `@ArrayMinSize`, `@ArrayMaxSize` | `string[]` or `number[]` |
+| `json` | `@Json(SomeClass, { maxLength })`, validated with that class's decorators | `SomeClass` |
 
 - **Descriptions**: `@Describe("...")`, at least 5 characters, on every variable.
 - **Required** means no `@IsOptional()` and no default. **Defaults** are property initializers (`PORT: number = 3000`), exported and checked against the variable's own constraints; for durations, `@Duration({ default: "30s" })`, an initializer in the same syntax, or one in milliseconds.
@@ -234,7 +234,8 @@ Every property with class-validator decorators or `@Describe` is a variable name
 - **Docs metadata**: `@Examples("eu-west-1")`, `@Group("logging")`, `@Deprecated({ message, replacedBy })`. Setting a deprecated variable logs a warning.
 - **Values are parsed by docuconf, not class-transformer.** Env strings become the contract type (strict base-10 integers; `true`/`false` in any case, so `"false"` is never `true`; Go durations; lists split on the separator) before class-validator checks the instance. `@Type` and `@Transform` on variables are not applied; on `@Json` and config-file classes, `@Type` is how nested classes are found.
 - **Empty strings** count as unset for every type except `string`. Values are never trimmed, except around list separators (`a, b` is `["a", "b"]`).
-- **Lists** need an item type: `@List()` without `@IsString({ each: true })` or `@IsInt({ each: true })` is an error, since `emitDecoratorMetadata` cannot see it. Every bad item is reported. Int items are exported with `itemMin`/`itemMax` from `@Min(0, { each: true })` and friends.
+- **Lists** need an item type: `@List()` without `@IsString({ each: true })` or `@IsInt({ each: true })` is an error, since `emitDecoratorMetadata` cannot see it. Every bad item is reported. Int items are exported with `itemMin`/`itemMax` from `@Min(0, { each: true })` and friends, capped at ±`Number.MAX_SAFE_INTEGER` as for `int` variables; an item outside them is `out_of_range`.
+- **Length limits** for fixed-width fields: `@MaxLength(n)` on a `url` is exported as `maxLength`, `@Json(SomeClass, { maxLength })` bounds a `json` value as received (whitespace included, before parsing), and `@MinLength(n, { each: true })`/`@MaxLength(n, { each: true })` (or `@Length(min, max, { each: true })`) on a string list become `itemMinLength`/`itemMaxLength`, checked on each item after splitting. They count characters (Unicode code points): `日本` is 2, an emoji is 1. A value outside them is `out_of_range`; a secret's error gives its length, never its value. Item lengths on an int list, or a minimum above the maximum, are declaration errors.
 - **Patterns** (`@Matches`) are RE2 and match anywhere in the value; anchor with `^...$`. Lookaround, backreferences and flags other than `g`/`u` are rejected.
 - **Constraints the contract cannot express** (`@IsEmail()`, custom validators) are still checked at boot, with a warning that the platform cannot see them. `@IsUrl()` warns too: by default it rejects hosts without a top-level domain (`localhost`, `db`), which the contract cannot say; use `@UrlSchemes(...)` or `@IsUrl({ require_tld: false })`.
 - **Constraints that do not fit the type** (`@MinLength` on an `@IsInt`, `@Min` on a `@Duration`) are errors, not dropped.

@@ -7,6 +7,9 @@ import {
   durationProblem,
   formatDuration,
   intItem,
+  itemLengthDeclProblems,
+  itemLengthProblem,
+  maxLengthProblem,
   parseDuration,
   splitCsv,
   urlProblem,
@@ -29,6 +32,12 @@ function typeMeta(m: DocuconfTypeMeta): Record<string, unknown> {
 
 function issue(code: ErrorCode, message: string, input: unknown) {
   return { code: "custom" as const, message, input, params: { docuconfCode: code } };
+}
+
+function requireMaxLength(fn: string, maxLength: number | undefined): void {
+  if (maxLength !== undefined && !(Number.isInteger(maxLength) && maxLength >= 0)) {
+    throw new TypeError(`${fn}: maxLength must be a non-negative integer`);
+  }
 }
 
 /**
@@ -113,6 +122,10 @@ export interface ListOptions {
   separator?: string;
   minItems?: number;
   maxItems?: number;
+  /** Shortest accepted item of a string list, in characters (code points). */
+  itemMinLength?: number;
+  /** Longest accepted item of a string list, in characters (code points), such as a fixed-width field's size. */
+  itemMaxLength?: number;
 }
 
 /**
@@ -134,6 +147,11 @@ export function list<T extends z.ZodType>(item: T, opts: ListOptions = {}): z.Zo
     throw new TypeError("list(): items must be strings or integers (for example z.string() or z.coerce.number().int())");
   }
   const meta: DocuconfTypeMeta = { type: "list", items, encoding: "csv", separator };
+  const lengths = { itemMinLength: opts.itemMinLength, itemMaxLength: opts.itemMaxLength };
+  const lengthProblems = itemLengthDeclProblems(items, lengths);
+  if (lengthProblems.length > 0) throw new TypeError(`list(): ${lengthProblems.join("; ")}`);
+  if (lengths.itemMinLength !== undefined) meta.itemMinLength = lengths.itemMinLength;
+  if (lengths.itemMaxLength !== undefined) meta.itemMaxLength = lengths.itemMaxLength;
   if (items === "int") {
     // The item type's range, such as z.int32() or .min(0), becomes itemMin
     // and itemMax (SPEC §4.3); the exporter caps them at safe integers.
@@ -167,6 +185,17 @@ export function list<T extends z.ZodType>(item: T, opts: ListOptions = {}): z.Zo
           }
         }
         if (bad) return z.NEVER;
+      } else {
+        // Lengths in code points (SPEC §4.3); Zod's .min()/.max() count UTF-16 units.
+        let bad = false;
+        for (const [i, part] of parts.entries()) {
+          const p = itemLengthProblem(part, lengths);
+          if (p) {
+            ctx.addIssue(issue(p.code, `item ${i + 1} ${p.message}`, v));
+            bad = true;
+          }
+        }
+        if (bad) return z.NEVER;
       }
       return parts;
     })
@@ -176,35 +205,52 @@ export function list<T extends z.ZodType>(item: T, opts: ListOptions = {}): z.Zo
 export interface UrlOptions {
   /** Accepted schemes, without "://", e.g. ["https"] or ["postgres", "postgresql"]. */
   schemes?: [string, ...string[]];
+  /** Longest accepted URL, in characters (code points). */
+  maxLength?: number;
 }
 
 /**
- * A URL with a `scheme://` prefix, optionally restricted to `schemes`.
- * The value stays a string. Contract type `url`.
+ * A URL with a `scheme://` prefix, optionally restricted to `schemes` and
+ * bounded by `maxLength`. The value stays a string. Contract type `url`.
  */
 export function url(opts: UrlOptions = {}): z.ZodString {
+  requireMaxLength("url()", opts.maxLength);
   const schemes = opts.schemes?.map((s) => s.toLowerCase());
   const meta: DocuconfTypeMeta = { type: "url" };
   if (opts.schemes) meta.schemes = [...opts.schemes];
+  if (opts.maxLength !== undefined) meta.maxLength = opts.maxLength;
   return z
     .string()
     .meta(typeMeta(meta))
     .superRefine((value, ctx) => {
-      const p = urlProblem(value, schemes);
+      const p = urlProblem(value, schemes) ?? maxLengthProblem(value, opts.maxLength);
       if (p) ctx.addIssue(issue(p.code, p.message, value));
     });
+}
+
+export interface JsonOptions {
+  /** Longest accepted value as received, in characters (code points), whitespace included. */
+  maxLength?: number;
 }
 
 /**
  * A structured value in one variable, sent as compact JSON and checked
  * against `schema`. Contract type `json`, with `schema` generated from it.
+ * `maxLength` bounds the value as the app receives it, before parsing.
  */
-export function json<T extends z.ZodType>(schema: T): z.ZodType<z.output<T>, string> {
+export function json<T extends z.ZodType>(schema: T, opts: JsonOptions = {}): z.ZodType<z.output<T>, string> {
+  requireMaxLength("json()", opts.maxLength);
   const meta: DocuconfTypeMeta = { type: "json", schema: contractSchema(schema) };
+  if (opts.maxLength !== undefined) meta.maxLength = opts.maxLength;
   return z
     .string()
     .meta(typeMeta(meta))
     .transform((value, ctx) => {
+      const long = maxLengthProblem(value, opts.maxLength);
+      if (long) {
+        ctx.addIssue(issue(long.code, long.message, value));
+        return z.NEVER;
+      }
       try {
         return JSON.parse(value) as unknown;
       } catch {

@@ -23,10 +23,15 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - name: Pick the docuconf-go ref
+        id: dcref
+        run: echo "ref=$(tr -d '[:space:]' < .github/docuconf-go.ref)" >> "$GITHUB_OUTPUT"
+      - name: Check out docuconf-go
+        uses: actions/checkout@v4
         with:
           repository: docuconf/docuconf-go
           path: docuconf-go
+          ref: ${{ steps.dcref.outputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -85,3 +90,119 @@ jobs:
 
       - name: Publish ${{ steps.pkg.outputs.name }}
         run: npm publish --workspace ${{ steps.pkg.outputs.dir }} --access public ${{ steps.pkg.outputs.prerelease == 'true' && '--tag next' || '' }}
+
+  # Also publishes the package to GitHub Packages (npm.pkg.github.com) and
+  # attaches its npm pack tarball to the GitHub Release for the tag. It runs
+  # the same checks as `publish` but does not depend on it, so it works with
+  # only the workflow's GITHUB_TOKEN. See RELEASING.md.
+  github:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # create the GitHub Release and upload its assets
+      packages: write # publish to npm.pkg.github.com
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pick the docuconf-go ref
+        id: dcref
+        run: echo "ref=$(tr -d '[:space:]' < .github/docuconf-go.ref)" >> "$GITHUB_OUTPUT"
+      - name: Check out docuconf-go
+        uses: actions/checkout@v4
+        with:
+          repository: docuconf/docuconf-go
+          path: docuconf-go
+          ref: ${{ steps.dcref.outputs.ref }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: false
+      - run: go install cuelang.org/go/cmd/cue@v0.17.1
+
+      - name: Pick the package from the tag
+        id: pkg
+        run: |
+          tag="$GITHUB_REF_NAME"
+          case "$tag" in
+            core-v*)   dir=packages/core;   version="${tag#core-v}" ;;
+            nestjs-v*) dir=packages/nestjs; version="${tag#nestjs-v}" ;;
+            v*)        dir=packages/t3;     version="${tag#v}" ;;
+            *) echo "Unknown tag $tag" >&2; exit 1 ;;
+          esac
+          actual=$(node -p "require('./$dir/package.json').version")
+          name=$(node -p "require('./$dir/package.json').name")
+          if [ "$version" != "$actual" ]; then
+            echo "Tag $tag does not match $name version $actual in $dir/package.json" >&2
+            exit 1
+          fi
+          {
+            echo "dir=$dir"
+            echo "name=$name"
+            echo "version=$version"
+            echo "prerelease=$([[ "$version" == *-* ]] && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+        env:
+          DOCUCONF_SPEC_CUE: ${{ github.workspace }}/docuconf-go/spec/cue
+          DOCUCONF_REQUIRE_VET: "1"
+          DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
+          DOCUCONF_REQUIRE_CONFORMANCE: "1"
+      - run: npm run build
+      - run: npm run smoke
+
+      # From here on the @docuconf scope resolves to GitHub Packages, so
+      # npm view and npm publish below talk to npm.pkg.github.com. npmjs.org
+      # stays the registry for everything else, and for the publish job.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://npm.pkg.github.com
+          scope: "@docuconf"
+
+      - name: Check the @docuconf/core version the package needs is on GitHub Packages
+        if: steps.pkg.outputs.dir != 'packages/core'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          range=$(node -p "require('./${{ steps.pkg.outputs.dir }}/package.json').dependencies['@docuconf/core']")
+          if [ -z "$(npm view "@docuconf/core@$range" version)" ]; then
+            echo "@docuconf/core@$range is not on GitHub Packages yet; push a core-v tag first" >&2
+            exit 1
+          fi
+
+      - name: Publish ${{ steps.pkg.outputs.name }} to GitHub Packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DIR: ${{ steps.pkg.outputs.dir }}
+          NAME: ${{ steps.pkg.outputs.name }}
+          VERSION: ${{ steps.pkg.outputs.version }}
+          PRERELEASE: ${{ steps.pkg.outputs.prerelease }}
+        run: |
+          if [ -n "$(npm view "$NAME@$VERSION" version 2>/dev/null)" ]; then
+            echo "$NAME@$VERSION is already on GitHub Packages"
+            exit 0
+          fi
+          tag=latest
+          if [ "$PRERELEASE" = true ]; then tag=next; fi
+          npm publish --workspace "$DIR" --registry https://npm.pkg.github.com --tag "$tag"
+
+      - name: Attach the npm pack tarball to the GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIR: ${{ steps.pkg.outputs.dir }}
+          NAME: ${{ steps.pkg.outputs.name }}
+          VERSION: ${{ steps.pkg.outputs.version }}
+          PRERELEASE: ${{ steps.pkg.outputs.prerelease }}
+        run: |
+          mkdir -p release-assets
+          npm pack --workspace "$DIR" --pack-destination release-assets
+          if ! gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            flags=()
+            if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+            gh release create "$GITHUB_REF_NAME" --verify-tag --generate-notes --title "$NAME $VERSION" "${flags[@]}"
+          fi
+          gh release upload "$GITHUB_REF_NAME" release-assets/*.tgz --clobber

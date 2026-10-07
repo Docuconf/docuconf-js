@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import "reflect-metadata";
-import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsPositive, IsString, Matches, Max, Min } from "class-validator";
+import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEnum, IsInt, IsNumber, IsOptional, IsPositive, IsString, Matches, Max, MaxLength, Min, MinLength } from "class-validator";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   Deprecated,
@@ -271,5 +271,98 @@ describe("int list item bounds (SPEC §4.3 itemMin, itemMax)", () => {
     expect(codes(failure({ IDS: "1,x" }, v))).toEqual([["IDS", "invalid_type"]]);
     expect(codes(failure({ POSITIVE: "0" }, v))).toEqual([["POSITIVE", "out_of_range"]]);
     expect(v({ SHARDS: "0,7,1023", IDS: "-5" })).toMatchObject({ SHARDS: [0, 7, 1023], IDS: [-5] });
+  });
+});
+
+describe("length limits (SPEC §4.3 maxLength on url and json, itemMinLength, itemMaxLength)", () => {
+  class RunLimits {
+    @IsOptional() @IsInt()
+    max?: number;
+  }
+  class Lengths {
+    @IsOptional() @UrlSchemes("https") @MaxLength(24) @Describe("Where to report each run")
+    CALLBACK?: string;
+
+    @IsOptional() @Json(RunLimits, { maxLength: 16 }) @Describe("Run limits as a JSON object")
+    LIMITS?: RunLimits;
+
+    @IsOptional() @List() @IsString({ each: true }) @MinLength(2, { each: true }) @MaxLength(4, { each: true }) @Describe("Branch codes")
+    BRANCHES?: string[];
+
+    @IsOptional() @Secret() @UrlSchemes("postgres") @MaxLength(30) @Describe("Database connection string")
+    DB_URL?: string;
+  }
+  const v = docuconfValidate(Lengths, { terminationLog: false, onWarning: () => {} });
+  const codesOf = (env: Record<string, string>) => {
+    try {
+      v(env);
+    } catch (e) {
+      return codes(e as DocuconfValidationError);
+    }
+    return [];
+  };
+
+  it("exports @MaxLength on a url, @Json maxLength and item lengths with each: true", () => {
+    const c = (n: string) => v.declaration.vars.get(n)!.contract;
+    expect(c("CALLBACK")).toMatchObject({ maxLength: 24 });
+    expect(c("LIMITS")).toMatchObject({ maxLength: 16 });
+    expect(c("BRANCHES")).toMatchObject({ itemMinLength: 2, itemMaxLength: 4 });
+  });
+
+  it("counts characters (code points), not bytes or UTF-16 units", () => {
+    expect(codesOf({ CALLBACK: "https://a.example/runs/4" })).toEqual([]);
+    expect(codesOf({ CALLBACK: "https://a.example/runs/42" })).toEqual([["CALLBACK", "out_of_range"]]);
+    expect(codesOf({ CALLBACK: "https://例え.jp/日本語の道/一二三四" })).toEqual([]);
+    expect(codesOf({ BRANCHES: "BE,ZÜ01,日本" })).toEqual([]);
+    // An emoji is 1 code point but 2 UTF-16 units: "😀😀😀😀" is 4 characters.
+    expect(codesOf({ BRANCHES: "😀😀😀😀" })).toEqual([]);
+    expect(codesOf({ BRANCHES: "😀😀😀😀😀" })).toEqual([["BRANCHES", "out_of_range"]]);
+    expect(codesOf({ BRANCHES: "BE,ZÜRICH" })).toEqual([["BRANCHES", "out_of_range"]]);
+    expect(codesOf({ BRANCHES: "BE,B" })).toEqual([["BRANCHES", "out_of_range"]]);
+  });
+
+  it("measures a json value as received, whitespace included", () => {
+    expect(codesOf({ LIMITS: '{"max":12345678}' })).toEqual([]);
+    expect(codesOf({ LIMITS: '{"max":123456789}' })).toEqual([["LIMITS", "out_of_range"]]);
+    expect(codesOf({ LIMITS: '{ "max": 123456 }' })).toEqual([["LIMITS", "out_of_range"]]);
+  });
+
+  it("reports a too-long secret's length, never its value", () => {
+    const e = failure({ DB_URL: "postgres://app:s3cr3t@db:5432/app" }, v);
+    expect(codes(e)).toEqual([["DB_URL", "out_of_range"]]);
+    expect(e.violations[0]!.message).toContain("33 characters");
+    expect(e.message).not.toContain("s3cr3t");
+  });
+
+  it("rejects item lengths on an int list, min above max, and defaults that break the limits", () => {
+    class Bad {
+      @IsOptional() @List() @IsInt({ each: true }) @MaxLength(4, { each: true }) @Describe("Shard ids")
+      SHARDS?: number[];
+
+      @IsOptional() @List() @IsString({ each: true }) @MinLength(5, { each: true }) @MaxLength(4, { each: true }) @Describe("Branch codes")
+      BRANCHES?: string[];
+
+      @Json(RunLimits, { maxLength: -1 }) @IsOptional() @Describe("Run limits")
+      LIMITS?: RunLimits;
+    }
+    expect(() => docuconfValidate(Bad, { terminationLog: false })).toThrow(/SHARDS: @MinLength, @MaxLength and @Length with \{ each: true \} apply to string items only[\s\S]*BRANCHES: itemMinLength 5 is above itemMaxLength 4[\s\S]*LIMITS: @Json maxLength must be a non-negative integer/);
+
+    class BadDefaults {
+      @UrlSchemes("https") @MaxLength(10) @Describe("Some URL value")
+      U = "https://example.com";
+
+      @List() @IsString({ each: true }) @MaxLength(2, { each: true }) @Describe("Some list value")
+      L = ["abc"];
+
+      @Json(undefined, { maxLength: 5 }) @Describe("Some JSON value")
+      J: unknown = { a: 1 };
+    }
+    expect(() => docuconfValidate(BadDefaults, { terminationLog: false })).toThrow(/U: default[\s\S]*L: default[\s\S]*J: default/);
+
+    class GoodDefault {
+      @List() @IsString({ each: true }) @MaxLength(3, { each: true }) @Describe("Some list value")
+      L = ["日本語"];
+    }
+    expect(() => docuconfValidate(GoodDefault, { terminationLog: false })).not.toThrow();
   });
 });

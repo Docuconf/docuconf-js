@@ -14,6 +14,7 @@ import {
   Length,
   Matches,
   Max,
+  MaxLength,
   Min,
   MinLength,
   ValidateNested,
@@ -89,20 +90,21 @@ export class EnvironmentVariables {
   @Duration({ min: "1s", max: "5m", default: "30s" }) @Describe("Upstream request timeout")
   REQUEST_TIMEOUT!: number;
 
-  @UrlSchemes("https") @Describe("Externally visible base URL")
+  @UrlSchemes("https") @MaxLength(200) @Describe("Externally visible base URL")
   PUBLIC_URL!: string;
 
   @IsEnum(LogLevel) @Group("logging") @Describe("Minimum log level emitted")
   LOG_LEVEL: LogLevel = LogLevel.Info;
 
-  @List() @IsString({ each: true }) @ArrayMinSize(1) @ArrayMaxSize(10) @Describe("CORS origins allowed to call the API")
+  @List() @IsString({ each: true }) @ArrayMinSize(1) @ArrayMaxSize(10) @Length(8, 100, { each: true })
+  @Describe("CORS origins allowed to call the API")
   ALLOWED_ORIGINS!: string[];
 
   @IsOptional() @List({ separator: ";" }) @IsInt({ each: true }) @Min(1, { each: true }) @Max(65535, { each: true })
   @Describe("Ports the workers bind")
   WORKER_PORTS?: number[];
 
-  @IsOptional() @Json(RateLimits) @Describe("Default per-client rate limits")
+  @IsOptional() @Json(RateLimits, { maxLength: 256 }) @Describe("Default per-client rate limits")
   RATE_LIMITS?: RateLimits;
 
   @IsString() @Matches(/^[a-z]{2}-[a-z]+-[0-9]$/) @Length(4, 32) @Examples("eu-west-1") @Describe("Cloud region the service runs in")

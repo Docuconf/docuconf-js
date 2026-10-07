@@ -6,7 +6,7 @@
  */
 import { DURATION_ENCODINGS, type DurationEncoding, parseDuration } from "./duration.ts";
 import { re2RegExp } from "./re2.ts";
-import { type JsonCheck, LIST_ENCODINGS, type ListEncoding, type ValueDecl, convertValue } from "./values.ts";
+import { type JsonCheck, LIST_ENCODINGS, type ListEncoding, type ValueDecl, convertValue, itemLengthDeclProblems } from "./values.ts";
 import { ENV_NAME, VarReport, type VarType, precheckVar, validDescription } from "./vars.ts";
 import { failBoot } from "./termination.ts";
 import { DocuconfDeclarationError, type Violation } from "./violations.ts";
@@ -18,7 +18,7 @@ export interface ContractVar extends ValueDecl {
   /** int and float bounds. */
   min?: number | undefined;
   max?: number | undefined;
-  /** string length bounds, in characters (code points). */
+  /** string length bounds, in characters (code points); maxLength also bounds a url or json value. */
   minLength?: number | undefined;
   maxLength?: number | undefined;
   /** string pattern: RE2, matched anywhere unless anchored. */
@@ -136,6 +136,7 @@ function readVar(name: string, raw: unknown, problem: (m: string) => void): Cont
     case "url": {
       const schemes = opt("schemes", isStrings, "a non-empty list of strings");
       v.schemes = schemes?.map((s) => s.toLowerCase());
+      v.maxLength = opt("maxLength", isCount, "a non-negative integer");
       break;
     }
     case "enum":
@@ -156,10 +157,15 @@ function readVar(name: string, raw: unknown, problem: (m: string) => void): Cont
       v.itemMin = opt("itemMin", isInt, "an integer");
       v.itemMax = opt("itemMax", isInt, "an integer");
       if (v.items !== "int" && (v.itemMin !== undefined || v.itemMax !== undefined)) problem("itemMin and itemMax apply to int items only");
+      v.itemMinLength = opt("itemMinLength", isCount, "a non-negative integer");
+      v.itemMaxLength = opt("itemMaxLength", isCount, "a non-negative integer");
+      for (const m of itemLengthDeclProblems(v.items, v)) problem(m);
       break;
     }
-    case "bool":
     case "json":
+      v.maxLength = opt("maxLength", isCount, "a non-negative integer");
+      break;
+    case "bool":
       break;
   }
 

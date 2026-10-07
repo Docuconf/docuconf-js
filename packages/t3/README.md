@@ -220,10 +220,10 @@ Only the `server` section is runtime configuration. T3's `client` section (and `
 | `float` | `z.coerce.number()` | `number` |
 | `bool` | `z.stringbool()` | `boolean` |
 | `duration` | `duration({ min, max, default })`, Go syntax (`30s`, `1m30s`) | milliseconds |
-| `url` | `url({ schemes })` | `string` |
+| `url` | `url({ schemes, maxLength })` | `string` |
 | `enum` | `z.enum([...])` | union of the values |
-| `list` | `list(item, { separator, minItems, maxItems })`, items strings or ints | array |
-| `json` | `json(schema)` | parsed object |
+| `list` | `list(item, { separator, minItems, maxItems, itemMinLength, itemMaxLength })`, items strings or ints | array |
+| `json` | `json(schema, { maxLength })` | parsed object |
 
 - **Validators.** Zod 4 is first class. Other validators that implement [Standard JSON Schema](https://standardschema.dev) (ArkType, or Valibot wrapped in `toStandardJsonSchema()` from `@valibot/to-json-schema`) work for plain strings, numbers and enums. `duration`, `list`, `url` and `json` build Zod schemas, so `zod` is a peer dependency.
 - **Descriptions** come from `.describe()` or `.meta({ description })`, and need at least 5 characters.
@@ -235,10 +235,11 @@ Only the `server` section is runtime configuration. T3's `client` section (and `
 - **Not supported**, with a hint saying what to use: `z.union()` (use `z.enum`), `.nullable()` (use `.optional()`), dates, and objects or arrays outside `json()` and `list()`.
 - **Patterns** are RE2 and match anywhere in the value, as `RegExp.test` does; anchor with `^...$`. Lookaround and backreferences are rejected.
 - **Empty strings** count as unset for every type except `string`. Values are never trimmed, except around list separators (`a, b` is `["a", "b"]`). Integers must be plain base-10 (`" 42"`, `0x2A` and `1e3` are rejected).
-- **Int list items**: the item schema's range is exported as `itemMin`/`itemMax` and checked at boot (`out_of_range`): `list(z.coerce.number().int().min(0).max(1023))`, or `list(z.int32())` for 32-bit items.
+- **Int list items**: the item schema's range is exported as `itemMin`/`itemMax` and checked at boot (`out_of_range`): `list(z.coerce.number().int().min(0).max(1023))`, or `list(z.int32())` for 32-bit items. Without bounds, items are capped at ±`Number.MAX_SAFE_INTEGER`, as for `int` variables.
+- **Length limits** for fixed-width fields: `url({ maxLength })`, `json(schema, { maxLength })`, and `list(z.string(), { itemMinLength, itemMaxLength })` for each item after splitting. They count characters (Unicode code points), so `日本` is 2 and an emoji is 1, unlike Zod's `.max()`, which counts UTF-16 units. A `json` value is measured as received, whitespace included, before parsing. A value outside them is `out_of_range`; a secret's error gives its length, never its value. Item lengths on an int list, or `itemMinLength` above `itemMaxLength`, throw when declared.
 - **Exclusive float bounds** (`.positive()`, `.gt(0)`) are exported as the nearest double inside them, so the platform rejects exactly what the app does.
 - **Docs metadata**: `annotate(schema, { group, examples, configKey, deprecated })`. Zod's `.meta({ examples })` also works.
-- **Feature flags**: names starting `FF_`, `FEATURE_`, `FEATURE_FLAG_` or `ENABLE_` produce a warning (SPEC §10). So does `NODE_ENV`, which frameworks and test runners set.
+- **Feature flags**: names starting `FF_`, `FEATURE_`, `FEATURE_FLAG_` or `ENABLE_` produce a warning (SPEC §10): flags that change without a rollout belong in a flag service. So does `NODE_ENV`, which frameworks and test runners set.
 
 Problems with the declaration itself (bad names, short descriptions, non-RE2 patterns, a default that breaks its own constraints, file mount clashes) throw `DocuconfDeclarationError` when `createEnv` runs, in both boot and export mode, each with what to write instead. With `exitOnError`, they print and exit 1 too.
 

@@ -179,6 +179,7 @@ export function describeVar(
       else if (!m && zodUrlProtocol(schema)) {
         warnings.push(`${name}: z.url({ protocol }) cannot be exported; use url({ schemes }) from @docuconf/t3`);
       }
+      if (m?.maxLength !== undefined) c["maxLength"] = m.maxLength;
       break;
     }
     case "enum": {
@@ -201,11 +202,14 @@ export function describeVar(
         c["itemMin"] = min;
         c["itemMax"] = max;
       }
+      if (m.itemMinLength !== undefined) c["itemMinLength"] = m.itemMinLength;
+      if (m.itemMaxLength !== undefined) c["itemMaxLength"] = m.itemMaxLength;
       decl.separator = m.separator;
       break;
     }
     case "json": {
       const m = meta as Extract<DocuconfTypeMeta, { type: "json" }>;
+      if (m.maxLength !== undefined) c["maxLength"] = m.maxLength;
       c["schema"] = m.schema;
       break;
     }

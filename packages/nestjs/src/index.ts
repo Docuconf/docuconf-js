@@ -16,6 +16,7 @@ export {
   UrlSchemes,
   type DurationOptions,
   type FileNameOption,
+  type JsonOptions,
   type JsonSchemaSource,
   type ListOptions,
 } from "./decorators.ts";

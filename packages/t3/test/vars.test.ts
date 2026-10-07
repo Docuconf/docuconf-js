@@ -268,3 +268,76 @@ describe("durations", () => {
     expect(codes(failure({ ...good, TIMEOUT: "6m" }))).toEqual([["TIMEOUT", "out_of_range"]]);
   });
 });
+
+describe("length limits (SPEC §4.3 maxLength on url and json, itemMinLength, itemMaxLength)", () => {
+  const vars = {
+    CALLBACK: url({ schemes: ["https"], maxLength: 24 }).optional().describe("Where to report each run"),
+    LIMITS: json(z.object({ max: z.number().int() }).partial(), { maxLength: 16 }).optional().describe("Run limits"),
+    BRANCHES: list(z.string(), { itemMinLength: 2, itemMaxLength: 4 }).optional().describe("Branch codes"),
+    DB_URL: secret(url({ maxLength: 30 })).optional().describe("Database connection string"),
+  };
+  const run = (env: Record<string, string>) => {
+    try {
+      createEnv({ server: vars, runtimeEnv: env, terminationLog: false, onWarning: () => {} });
+    } catch (e) {
+      return (e as DocuconfValidationError).violations;
+    }
+    return [];
+  };
+  const codesOf = (env: Record<string, string>) => run(env).map((v) => [v.input, v.code]);
+
+  it("exports the limits", () => {
+    const env = createEnv({ server: vars, runtimeEnv: {}, terminationLog: false, onWarning: () => {} });
+    const c = (n: string) => getDeclaration(env).vars.get(n)!.contract;
+    expect(c("CALLBACK")).toMatchObject({ maxLength: 24 });
+    expect(c("LIMITS")).toMatchObject({ maxLength: 16 });
+    expect(c("BRANCHES")).toMatchObject({ itemMinLength: 2, itemMaxLength: 4 });
+  });
+
+  it("counts characters (code points), not bytes or UTF-16 units", () => {
+    expect(codesOf({ CALLBACK: "https://a.example/runs/4" })).toEqual([]);
+    expect(codesOf({ CALLBACK: "https://a.example/runs/42" })).toEqual([["CALLBACK", "out_of_range"]]);
+    expect(codesOf({ CALLBACK: "https://例え.jp/日本語の道/一二三四" })).toEqual([]);
+    expect(codesOf({ BRANCHES: "BE,ZÜ01,日本" })).toEqual([]);
+    // An emoji is 1 code point but 2 UTF-16 units: "😀😀😀😀" is 4 characters.
+    expect(codesOf({ BRANCHES: "😀😀😀😀" })).toEqual([]);
+    expect(codesOf({ BRANCHES: "😀😀😀😀😀" })).toEqual([["BRANCHES", "out_of_range"]]);
+    expect(codesOf({ BRANCHES: "BE,ZÜRICH" })).toEqual([["BRANCHES", "out_of_range"]]);
+    expect(codesOf({ BRANCHES: "BE,B" })).toEqual([["BRANCHES", "out_of_range"]]);
+  });
+
+  it("measures a json value as received, whitespace included", () => {
+    expect(codesOf({ LIMITS: '{"max":12345678}' })).toEqual([]);
+    expect(codesOf({ LIMITS: '{"max":123456789}' })).toEqual([["LIMITS", "out_of_range"]]);
+    expect(codesOf({ LIMITS: '{ "max": 123456 }' })).toEqual([["LIMITS", "out_of_range"]]);
+  });
+
+  it("reports a too-long secret's length, never its value", () => {
+    const v = run({ DB_URL: "postgres://app:s3cr3t@db:5432/app" });
+    expect(v.map((x) => x.code)).toEqual(["out_of_range"]);
+    expect(v[0]!.message).not.toContain("s3cr3t");
+  });
+
+  it("rejects bad limits when declared", () => {
+    expect(() => list(z.coerce.number().int(), { itemMaxLength: 4 })).toThrow("itemMinLength and itemMaxLength apply to string items only");
+    expect(() => list(z.string(), { itemMinLength: 5, itemMaxLength: 4 })).toThrow("itemMinLength 5 is above itemMaxLength 4");
+    expect(() => list(z.string(), { itemMaxLength: -1 })).toThrow("itemMaxLength must be a non-negative integer");
+    expect(() => url({ maxLength: 1.5 })).toThrow("maxLength must be a non-negative integer");
+    expect(() => json(z.object({}), { maxLength: -2 })).toThrow("maxLength must be a non-negative integer");
+  });
+
+  it("rejects a default that breaks the limits", () => {
+    const declare = (server: Record<string, z.ZodType>) => {
+      try {
+        createEnv({ server, runtimeEnv: {}, terminationLog: false, onWarning: () => {} });
+      } catch (e) {
+        return (e as Error).message;
+      }
+      return "";
+    };
+    expect(declare({ U: url({ maxLength: 10 }).default("https://example.com").describe("Some URL value") })).toContain("violates its own constraints");
+    expect(declare({ J: json(z.object({ a: z.number() }), { maxLength: 5 }).default({ a: 1 }).describe("Some JSON value") })).toContain("violates its own constraints");
+    expect(declare({ L: list(z.string(), { itemMaxLength: 2 }).default(["abc"]).describe("Some list value") })).toContain("violates its own constraints");
+    expect(declare({ L: list(z.string(), { itemMaxLength: 3 }).default(["日本語"]).describe("Some list value") })).toBe("");
+  });
+});

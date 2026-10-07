@@ -11,6 +11,7 @@ import {
   contractDefault,
   describeFiles,
   intBounds,
+  itemLengthDeclProblems,
   nextFloat,
   nonRe2Feature,
   parseDuration,
@@ -58,7 +59,7 @@ const STRING_CONSTRAINTS = ["isString", "matches", "minLength", "maxLength", "is
 /** Constraints that only mean something for one kind of value; on another they would be dropped from the contract. */
 const ONLY_FOR: Record<string, { types: VarType[]; use: string }> = {
   minLength: { types: ["string"], use: "a string" },
-  maxLength: { types: ["string"], use: "a string" },
+  maxLength: { types: ["string", "url"], use: "a string or a url" },
   isLength: { types: ["string"], use: "a string" },
   matches: { types: ["string"], use: "a string" },
   isNotEmpty: { types: ["string"], use: "a string" },
@@ -240,6 +241,9 @@ function describeVar(
         c["schemes"] = [...schemes];
         decl.schemes = schemes.map((s) => s.toLowerCase());
       }
+      // @MaxLength() bounds the URL, in characters (SPEC §4.3).
+      const maxLength = num(cs, "maxLength") ?? num(cs, "isLength", 1);
+      if (maxLength !== undefined) c["maxLength"] = decl.maxLength = maxLength;
       break;
     }
     case "enum": {
@@ -288,9 +292,26 @@ function describeVar(
         c["itemMin"] = decl.itemMin = min;
         c["itemMax"] = decl.itemMax = max;
       }
+      // @MinLength(n, { each: true }) and @MaxLength(n, { each: true }) bound each string item (SPEC §4.3).
+      const eachNum = (n: string, i = 0) => {
+        const v = find(cs, n, true)?.constraints[i];
+        return typeof v === "number" && Number.isFinite(v) ? v : undefined;
+      };
+      const itemMinLength = eachNum("minLength") ?? eachNum("isLength", 0);
+      const itemMaxLength = eachNum("maxLength") ?? eachNum("isLength", 1);
+      for (const m of itemLengthDeclProblems(items, { itemMinLength, itemMaxLength })) p(m.replace(/^itemMinLength and itemMaxLength/, "@MinLength, @MaxLength and @Length with { each: true }"));
+      if (items === "string") {
+        if (itemMinLength !== undefined) c["itemMinLength"] = decl.itemMinLength = itemMinLength;
+        if (itemMaxLength !== undefined) c["itemMaxLength"] = decl.itemMaxLength = itemMaxLength;
+      }
       break;
     }
     case "json": {
+      const maxLength = doc.json?.options?.maxLength;
+      if (maxLength !== undefined) {
+        if (!(Number.isInteger(maxLength) && maxLength >= 0)) p("@Json maxLength must be a non-negative integer");
+        else c["maxLength"] = decl.maxLength = maxLength;
+      }
       const schema = doc.json?.schema;
       if (schema !== undefined) {
         try {

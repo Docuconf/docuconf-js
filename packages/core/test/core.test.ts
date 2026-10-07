@@ -15,6 +15,7 @@ import {
   underTestRunner,
   type ValueDecl,
   GENERIC,
+  charLength,
   VarReport,
   checkContract,
   closeSchema,
@@ -335,5 +336,62 @@ describe("contract-first mode (SPEC §11.2 item 11)", () => {
         "TAGS: itemMin and itemMax apply to int items only",
       ]);
     }
+  });
+});
+
+describe("length limits (SPEC §4.3 maxLength on url and json, itemMinLength, itemMaxLength)", () => {
+  const contract = {
+    apiVersion: "docuconf.dev/v1alpha1",
+    kind: "ConfigContract",
+    vars: {
+      CALLBACK: { type: "url", description: "Where to report each run", maxLength: 24 },
+      LIMITS: { type: "json", description: "Run limits", maxLength: 16 },
+      BRANCHES: { type: "list", description: "Branch codes", items: "string", itemMinLength: 2, itemMaxLength: 4 },
+      CODES: { type: "list", description: "Branch codes as JSON", items: "string", encoding: "json", itemMaxLength: 4 },
+      DB_URL: { type: "url", description: "Database connection string", secret: true, maxLength: 30 },
+    },
+  };
+  const codes = (env: Record<string, string>) => checkContract(contract, env).violations.map((v) => [v.input, v.code]);
+
+  it("counts code points, not bytes or UTF-16 units", () => {
+    expect(charLength("日本")).toBe(2);
+    expect(charLength("ZÜ01")).toBe(4);
+    expect(charLength("😀")).toBe(1);
+    expect("😀".length).toBe(2);
+  });
+
+  it("checks url and json maxLength, and item lengths in every encoding", () => {
+    expect(codes({ CALLBACK: "https://a.example/runs/4", LIMITS: '{"max":12345678}', BRANCHES: "BE,ZÜ01,日本", CODES: '["😀😀😀😀"]' })).toEqual([]);
+    expect(codes({ CALLBACK: "https://a.example/runs/42" })).toEqual([["CALLBACK", "out_of_range"]]);
+    expect(codes({ LIMITS: '{ "max": 123456 }' })).toEqual([["LIMITS", "out_of_range"]]);
+    expect(codes({ BRANCHES: "BE,B" })).toEqual([["BRANCHES", "out_of_range"]]);
+    expect(codes({ BRANCHES: "😀😀😀😀😀" })).toEqual([["BRANCHES", "out_of_range"]]);
+    expect(codes({ CODES: '["BE","GENEVA"]' })).toEqual([["CODES", "out_of_range"]]);
+  });
+
+  it("reports a too-long secret's length, never its value", () => {
+    const { violations } = checkContract(contract, { DB_URL: "postgres://app:s3cr3t@db:5432/app" });
+    expect(violations).toEqual([{ input: "DB_URL", kind: "var", code: "out_of_range", message: "is 33 characters, above maxLength 30" }]);
+  });
+
+  it("rejects item lengths on an int list, min above max, and negative limits", () => {
+    let error: unknown;
+    try {
+      parseContract({
+        ...contract,
+        vars: {
+          IDS: { type: "list", description: "Record ids", items: "int", itemMaxLength: 4 },
+          TAGS: { type: "list", description: "Some tags", items: "string", itemMinLength: 5, itemMaxLength: 4 },
+          U: { type: "url", description: "Some URL value", maxLength: -1 },
+        },
+      });
+    } catch (e) {
+      error = e;
+    }
+    expect((error as DocuconfDeclarationError).problems).toEqual([
+      "IDS: itemMinLength and itemMaxLength apply to string items only",
+      "TAGS: itemMinLength 5 is above itemMaxLength 4",
+      "U: maxLength must be a non-negative integer",
+    ]);
   });
 });
