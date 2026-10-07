@@ -297,3 +297,5 @@ export async function importModule(file: string, opts: ImportOptions = {}): Prom
     throw describeFailure(file, notFound ? firstError : e, aliases);
   }
 }
+
+export { callArgumentDocs, classPropertyDocs, docCommentsUnavailable } from "./doc-comments.ts";

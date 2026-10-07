@@ -191,7 +191,7 @@ npx docuconf-nestjs export src/config/env.validation.ts --check contract.cue   #
 | `--tsconfig` | The `tsconfig.json` whose `paths` aliases apply. Default: the nearest one above the module. |
 | `--export` | The exported validate function to use, when the module makes several. |
 
-`npx docuconf-nestjs docs src/config/env.validation.ts --out CONFIG.md` writes the same declaration as Markdown tables. From code:
+`npx docuconf-nestjs docs src/config/env.validation.ts --out CONFIG.md` writes the same declaration as Markdown tables. For full documentation, with each input's details, run `docuconf docs` on the exported contract (see [Descriptions and details](#descriptions-and-details)). From code:
 
 ```ts
 // src/contract.ts
@@ -228,7 +228,7 @@ Every property with class-validator decorators or `@Describe` is a variable name
 | `list` | `@List({ separator })` and items `@IsString({ each: true })` or `@IsInt({ each: true })`; int items bounded with `@Min`, `@Max`, `@IsPositive`, `@IsNegative` and `{ each: true }`, string items with `@MinLength`, `@MaxLength`, `@Length` and `{ each: true }`; `@ArrayMinSize`, `@ArrayMaxSize` | `string[]` or `number[]` |
 | `json` | `@Json(SomeClass, { maxLength })`, validated with that class's decorators | `SomeClass` |
 
-- **Descriptions**: `@Describe("...")`, at least 5 characters, on every variable.
+- **Descriptions**: `@Describe("...")`, at least 5 characters, on every variable. **Details**, longer docs, come from the property's TSDoc comment or `@Details("...")`: see [Descriptions and details](#descriptions-and-details).
 - **Required** means no `@IsOptional()` and no default. **Defaults** are property initializers (`PORT: number = 3000`), exported and checked against the variable's own constraints; for durations, `@Duration({ default: "30s" })`, an initializer in the same syntax, or one in milliseconds.
 - **Secrets**: `@Secret()`. A secret cannot have a default or examples, and its value never appears in errors or when the config is printed.
 - **Docs metadata**: `@Examples("eu-west-1")`, `@Group("logging")`, `@Deprecated({ message, replacedBy })`. Setting a deprecated variable logs a warning.
@@ -247,6 +247,40 @@ Every property with class-validator decorators or `@Describe` is a variable name
 Problems with the declaration itself (bad names, short descriptions, non-RE2 patterns, a default that breaks its own constraints, file mount clashes) throw `DocuconfDeclarationError` when `docuconfValidate` is called, in both boot and export mode. With `exitOnError`, they print and exit 1 too.
 
 The object `validate` returns is an instance of your class, like the one in the NestJS docs: typed values, plus the variables the class does not declare. Nest copies its string, number and boolean values to `process.env`; durations (milliseconds are not a Go duration) and file inputs are kept out of that copy.
+
+### Descriptions and details
+
+Every input has a **description**: what it is, in one phrase of plain text, from `@Describe("...")`. A missing or short one is a declaration error. An input may also have **details**: CommonMark on why it exists and when to change it, at most 4000 characters (Unicode code points). Details go into the contract for generated docs only and are never read at runtime. Write them as the property's TSDoc/JSDoc comment:
+
+```ts
+export class OrdersConfig {
+  /**
+   * Number of background order workers.
+   *
+   * Each worker holds one database connection, so keep this below the
+   * pool size of {@link DATABASE_URL}'s server.
+   *
+   * - Raise it when the order queue backs up.
+   * - Lower it when the database is the bottleneck.
+   */
+  @IsInt() @Min(1) @Max(64) @Describe("Number of background order workers")
+  WORKER_COUNT: number = 4;
+
+  // Without a comment, or from compiled JavaScript: @Details.
+  @IsString() @Describe("Cloud region") @Details("Set by the platform; do not change it.")
+  REGION: string = "eu-west-1";
+}
+
+export const validate = docuconfValidate(OrdersConfig, { name: "orders" });
+```
+
+- `docuconf-nestjs export` reads the comment above each property (above its decorators) of the environment class, and of the classes it extends, from the TypeScript file that declares it, with your project's own `typescript`. Comments do not exist at runtime, and compiled JavaScript has no property declarations, so export the `.ts` source for comments, or use `@Details`.
+- The comment's first paragraph is its summary; when it repeats the description it is left out, and the rest is the details. Otherwise the whole comment is.
+- TSDoc is converted to CommonMark: `{@link X}` and `{@code x}` become code spans (a URL becomes a link), `@remarks` text is kept, `@example` becomes a code block, and other tags (`@param`, `@default`, `@see`, `@deprecated`) are dropped. Paragraphs, lists and fenced code are kept as written.
+- `@Details("...")` wins over the comment, on variables and file inputs alike.
+- Blank details, or more than 4000 characters, fail the declaration (or the export, for a comment).
+
+`docuconf docs` in the [docuconf CLI](https://github.com/docuconf/docuconf-go) generates CONFIG.md and CONFIG.agents.md from the exported contract: `docuconf docs contract.cue -o CONFIG.md`, and `--format agents -o CONFIG.agents.md`.
 
 ### `docuconfValidate` options
 

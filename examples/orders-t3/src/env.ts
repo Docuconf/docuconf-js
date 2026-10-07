@@ -13,6 +13,15 @@ export const env = createEnv({
       .default(["http://localhost:3000"])
       .describe("Comma-separated CORS origins allowed to call the API"),
     REQUEST_TIMEOUT: duration({ min: "1s", max: "5m", default: "30s" }).describe("Timeout for a single request"),
+    /**
+     * Number of background order workers.
+     *
+     * Each worker holds one database connection, so keep this below the
+     * pool size of {@link DATABASE_URL}'s server.
+     *
+     * - Raise it when the order queue backs up.
+     * - Lower it when the database is the bottleneck.
+     */
     WORKER_COUNT: z.coerce.number().int().min(1).max(64).default(4).describe("Number of background order workers"),
   },
   runtimeEnv: process.env,

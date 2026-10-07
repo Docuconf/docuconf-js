@@ -2,6 +2,7 @@ import { posix } from "node:path";
 import { CONTRACT_DURATION, canonicalDuration } from "../duration.ts";
 import { closeSchema } from "../jsonschema.ts";
 import { cleanPattern, nonRe2Feature } from "../re2.ts";
+import { detailsProblem } from "../doc-text.ts";
 import { ENV_NAME, validDescription } from "../vars.ts";
 import type { FileInput, SchemaAdapter } from "./spec.ts";
 
@@ -57,6 +58,8 @@ export function describeFiles(
     const p = (msg: string) => problems.push(`${label}: ${msg}`);
     if (!INPUT_NAME.test(name)) p(`input names must be DNS labels matching ${INPUT_NAME.source}`);
     if (!validDescription(o.description)) p("needs a description of at least 5 characters");
+    const detailsBad = o.details === undefined ? undefined : detailsProblem(o.details);
+    if (detailsBad !== undefined) p(detailsBad);
     if (!isAbsPath(o.path)) p(`path "${o.path}" must be absolute and normalised`);
     else {
       const dir = input.type === "tls" ? o.path : posix.dirname(o.path);
@@ -78,6 +81,7 @@ export function describeFiles(
     const c: Record<string, unknown> = { type: input.type };
     if (input.type === "config" || input.type === "keystore") c["format"] = o["format"];
     c["description"] = o.description;
+    if (o.details !== undefined) c["details"] = o.details;
     if (o.required === true) c["required"] = true;
     if (o.secret === true) c["secret"] = true;
     c["path"] = o.path;

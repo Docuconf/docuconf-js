@@ -141,7 +141,7 @@ npx docuconf-t3 export src/env.ts --check contract.cue   # exits 1 with a diff w
 | `--package` | CUE package name. Default: the service name with `-` replaced by `_`. |
 | `--tsconfig` | The `tsconfig.json` whose `paths` aliases apply. Default: the nearest one above the module. |
 
-`npx docuconf-t3 docs src/env.ts --out CONFIG.md` writes the same declaration as Markdown tables.
+`npx docuconf-t3 docs src/env.ts --out CONFIG.md` writes the same declaration as Markdown tables. For full documentation, with each input's details, run `docuconf docs` on the exported contract (see [Descriptions and details](#descriptions-and-details)).
 
 TypeScript modules load with Node's type stripping (Node 22.18+), with `tsconfig.json` `paths` aliases (`@/lib/schemas`) and extensionless imports resolved as TypeScript does. For syntax Node cannot strip (enums, namespaces) or older Node, install [jiti](https://github.com/unjs/jiti) as a dev dependency (`npm install --save-dev jiti`) and the CLI uses it. Plain `.mjs` and `.cjs` modules work too.
 
@@ -226,7 +226,7 @@ Only the `server` section is runtime configuration. T3's `client` section (and `
 | `json` | `json(schema, { maxLength })` | parsed object |
 
 - **Validators.** Zod 4 is first class. Other validators that implement [Standard JSON Schema](https://standardschema.dev) (ArkType, or Valibot wrapped in `toStandardJsonSchema()` from `@valibot/to-json-schema`) work for plain strings, numbers and enums. `duration`, `list`, `url` and `json` build Zod schemas, so `zod` is a peer dependency.
-- **Descriptions** come from `.describe()` or `.meta({ description })`, and need at least 5 characters.
+- **Descriptions** come from `.describe()` or `.meta({ description })`, and need at least 5 characters. **Details**, longer docs, come from the property's TSDoc comment, `.meta({ details })` or `annotate(schema, { details })`: see [Descriptions and details](#descriptions-and-details).
 - **Secrets**: `secret(schema)`. A secret cannot have a default or examples, and its value never appears in errors or when `env` is printed.
 - **Required** means the schema rejects `undefined`. A `.default()`, `.prefault()` or `.optional()` makes a variable optional; defaults are exported and checked against the variable's own constraints.
 - **Numbers** need `z.coerce.number()`: environment values are strings, so `z.number()` would reject every one, and the declaration check says so.
@@ -238,10 +238,44 @@ Only the `server` section is runtime configuration. T3's `client` section (and `
 - **Int list items**: the item schema's range is exported as `itemMin`/`itemMax` and checked at boot (`out_of_range`): `list(z.coerce.number().int().min(0).max(1023))`, or `list(z.int32())` for 32-bit items. Without bounds, items are capped at ±`Number.MAX_SAFE_INTEGER`, as for `int` variables.
 - **Length limits** for fixed-width fields: `url({ maxLength })`, `json(schema, { maxLength })`, and `list(z.string(), { itemMinLength, itemMaxLength })` for each item after splitting. They count characters (Unicode code points), so `日本` is 2 and an emoji is 1, unlike Zod's `.max()`, which counts UTF-16 units. A `json` value is measured as received, whitespace included, before parsing. A value outside them is `out_of_range`; a secret's error gives its length, never its value. Item lengths on an int list, or `itemMinLength` above `itemMaxLength`, throw when declared.
 - **Exclusive float bounds** (`.positive()`, `.gt(0)`) are exported as the nearest double inside them, so the platform rejects exactly what the app does.
-- **Docs metadata**: `annotate(schema, { group, examples, configKey, deprecated })`. Zod's `.meta({ examples })` also works.
+- **Docs metadata**: `annotate(schema, { details, group, examples, configKey, deprecated })`. Zod's `.meta({ details, examples })` also works.
 - **Feature flags**: names starting `FF_`, `FEATURE_`, `FEATURE_FLAG_` or `ENABLE_` produce a warning (SPEC §10): flags that change without a rollout belong in a flag service. So does `NODE_ENV`, which frameworks and test runners set.
 
 Problems with the declaration itself (bad names, short descriptions, non-RE2 patterns, a default that breaks its own constraints, file mount clashes) throw `DocuconfDeclarationError` when `createEnv` runs, in both boot and export mode, each with what to write instead. With `exitOnError`, they print and exit 1 too.
+
+### Descriptions and details
+
+Every input has a **description**: what it is, in one phrase of plain text. It comes from `.describe()` (or `.meta({ description })`), as T3 Env apps already write it, and a missing or short one fails `createEnv`. An input may also have **details**: CommonMark on why it exists and when to change it, at most 4000 characters (Unicode code points). Details go into the contract for generated docs only and are never read at runtime. Write them as the property's TSDoc/JSDoc comment:
+
+```ts
+export const env = createEnv({
+  name: "orders",
+  server: {
+    /**
+     * Number of background order workers.
+     *
+     * Each worker holds one database connection, so keep this below the
+     * pool size of {@link DATABASE_URL}'s server.
+     *
+     * - Raise it when the order queue backs up.
+     * - Lower it when the database is the bottleneck.
+     */
+    WORKER_COUNT: z.coerce.number().int().min(1).max(64).default(4).describe("Number of background order workers"),
+    // Without a comment: .meta({ details }), or annotate() for other validators.
+    REGION: z.string().default("eu-west-1").describe("Cloud region").meta({ details: "Set by the platform; do not change it." }),
+    ZONE: annotate(z.string().default("a").describe("Availability zone"), { details: "One of the region's zones." }),
+  },
+  runtimeEnv: process.env,
+});
+```
+
+- `docuconf-t3 export` reads the comment above each property of `server` and `files` in the file that calls `createEnv` (or in a `const` object it is given in that file), with your project's own `typescript`. Comments do not exist at runtime, so this is the export CLI's job; without `typescript` installed it warns and exports only explicit details.
+- The comment's first paragraph is its summary; when it repeats the description it is left out, and the rest is the details. Otherwise the whole comment is.
+- TSDoc is converted to CommonMark: `{@link X}` and `{@code x}` become code spans (a URL becomes a link), `@remarks` text is kept, `@example` becomes a code block, and other tags (`@param`, `@default`, `@see`, `@deprecated`) are dropped. Paragraphs, lists and fenced code are kept as written.
+- `.meta({ details })` or `annotate(schema, { details })` win over the comment. File inputs take `details` as an option, as well as their comment.
+- Blank details, or more than 4000 characters, fail the declaration (or the export, for a comment).
+
+`docuconf docs` in the [docuconf CLI](https://github.com/docuconf/docuconf-go) generates CONFIG.md and CONFIG.agents.md from the exported contract: `docuconf docs contract.cue -o CONFIG.md`, and `--format agents -o CONFIG.agents.md`.
 
 ### `createEnv` options
 

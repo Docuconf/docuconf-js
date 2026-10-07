@@ -5,6 +5,7 @@
  * ones the SDKs run at boot: precheckVar and convertValue.
  */
 import { DURATION_ENCODINGS, type DurationEncoding, parseDuration } from "./duration.ts";
+import { detailsProblem } from "./doc-text.ts";
 import { re2RegExp } from "./re2.ts";
 import { type JsonCheck, LIST_ENCODINGS, type ListEncoding, type ValueDecl, convertValue, itemLengthDeclProblems } from "./values.ts";
 import { ENV_NAME, VarReport, type VarType, precheckVar, validDescription } from "./vars.ts";
@@ -79,6 +80,11 @@ function readVar(name: string, raw: unknown, problem: (m: string) => void): Cont
     return undefined;
   }
   if (!validDescription(raw["description"])) problem("needs a description of at least 5 characters");
+  // details is documentation only (SPEC §4.2): checked like the meta-schema does, never used.
+  if (raw["details"] !== undefined) {
+    const bad = detailsProblem(raw["details"]);
+    if (bad !== undefined) problem(bad);
+  }
   const flag = (k: string) => {
     const x = raw[k] ?? false;
     if (typeof x !== "boolean") problem(`${k} must be a boolean`);

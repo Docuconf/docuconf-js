@@ -13,6 +13,7 @@ import {
   type LoadContext,
   type Violation,
   DocuconfDeclarationError,
+  callerFile,
   exitWith,
   exportSession,
   failBoot,
@@ -110,6 +111,7 @@ export function createEnv<
 
   const exporting = session.current();
   if (exporting) {
+    decl.sourceFile = callerFile();
     exporting.declarations.push(decl);
     return wrap(t3({ skipValidation: true }), decl, others, exportFiles(decl)) as never;
   }

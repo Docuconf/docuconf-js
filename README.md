@@ -20,6 +20,10 @@ Both SDKs implement [spec v1alpha1](https://github.com/docuconf/docuconf-go/blob
 with `generator.language: "typescript"`, and report the same error codes. Neither has a config-file overlay API: Node
 does not layer configuration files, so there is nothing for an overlay to slot into.
 
+Every input's `description` comes from `.describe()` (T3 Env) or `@Describe` (NestJS); longer `details` come from the
+property's TSDoc comment, or an explicit `details` option. `docuconf docs` in the docuconf CLI generates CONFIG.md and
+CONFIG.agents.md from the exported contract.
+
 ## Layout
 
 ```

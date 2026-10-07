@@ -12,6 +12,8 @@ export interface Declaration {
   files: Record<string, FileInput>;
   fileContracts: Map<string, Record<string, unknown>>;
   warnings: string[];
+  /** In export mode: the file that called createEnv, whose doc comments give details. */
+  sourceFile?: string | undefined;
 }
 
 /**
