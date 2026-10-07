@@ -3,7 +3,7 @@ import {
   type Generator,
   buildContract as coreBuildContract,
   renderContract as coreRenderContract,
-} from "@docuconf/core";
+} from "@docuconf/core/pure";
 import type { Declaration } from "./declaration.ts";
 import { SDK_NAME, SDK_VERSION } from "./version.ts";
 

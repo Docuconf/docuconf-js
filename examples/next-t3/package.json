@@ -1,0 +1,26 @@
+{
+  "name": "next-t3",
+  "private": true,
+  "description": "docuconf with Next.js: @docuconf/t3 validates at server start (instrumentation.ts), skips next build, and serves client components from the same env.ts.",
+  "license": "MIT",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "export": "docuconf-t3 export src/env.ts --out contract.cue",
+    "check": "docuconf-t3 export src/env.ts --check contract.cue",
+    "smoke": "bash smoke.sh"
+  },
+  "dependencies": {
+    "@t3-oss/env-core": "^0.13.11",
+    "next": "^16.4.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/react": "^19.3.0",
+    "typescript": "^5.9.3"
+  }
+}

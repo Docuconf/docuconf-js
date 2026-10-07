@@ -1,9 +1,9 @@
-import { type ErrorCode, VarReport, type Violation, precheckVar } from "@docuconf/core";
+import { type ErrorCode, VarReport, type Violation, precheckVar, splitCsv } from "@docuconf/core/pure";
 import type { StandardSchemaV1 } from "@t3-oss/env-core";
 import type { VarDecl } from "./introspect.ts";
 import { issuePath, validateSync } from "./jsonschema.ts";
 
-export { preprocess } from "@docuconf/core";
+export { preprocess } from "@docuconf/core/pure";
 
 interface ZodLikeIssue extends StandardSchemaV1.Issue {
   code?: string;
@@ -50,9 +50,18 @@ export function validateVar(decl: VarDecl, raw: unknown): { value: unknown; viol
     return { value: undefined, violations: report.violations };
   }
   const got = report.got(value);
+  // A list's item issues name the item, and quote it rather than the whole list.
+  const items = decl.type === "list" && typeof value === "string" ? splitCsv(value, decl.separator) : undefined;
   for (const issue of r.issues) {
+    const first = issue.path?.[0];
+    const index = typeof first === "object" && first !== null ? first.key : first;
+    if (items && typeof index === "number" && issue.path?.length === 1) {
+      report.add(issueCode(issue, decl), `item ${index + 1}: ${issue.message}${report.got(items[index])}`);
+      continue;
+    }
     const p = issuePath(issue);
-    report.add(issueCode(issue, decl), `${p ? `${p}: ` : ""}${issue.message}${got}`);
+    const own = issue.message.startsWith("item ") && items !== undefined;
+    report.add(issueCode(issue, decl), `${p ? `${p}: ` : ""}${issue.message}${own ? "" : got}`);
   }
   return { value: undefined, violations: report.violations };
 }

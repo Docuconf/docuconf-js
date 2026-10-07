@@ -1,10 +1,13 @@
 export {
+  checkEnv,
   createEnv,
   closeWatchers,
   getDeclaration,
   onFileChange,
   reloadFile,
   toContract,
+  type CheckEnvOptions,
+  type CheckEnvResult,
   type DocuconfEnv,
   type DocuconfOptions,
 } from "./env.ts";
@@ -36,4 +39,4 @@ export {
   parseDuration,
   type ErrorCode,
   type Violation,
-} from "@docuconf/core";
+} from "@docuconf/core/pure";

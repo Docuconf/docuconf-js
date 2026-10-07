@@ -339,7 +339,7 @@ describe("length limits (SPEC §4.3 maxLength on url and json, itemMinLength, it
       @IsOptional() @List() @IsInt({ each: true }) @MaxLength(4, { each: true }) @Describe("Shard ids")
       SHARDS?: number[];
 
-      @IsOptional() @List() @MinLength(5, { each: true }) @MaxLength(4, { each: true }) @Describe("Branch codes")
+      @IsOptional() @List() @IsString({ each: true }) @MinLength(5, { each: true }) @MaxLength(4, { each: true }) @Describe("Branch codes")
       BRANCHES?: string[];
 
       @Json(RunLimits, { maxLength: -1 }) @IsOptional() @Describe("Run limits")
@@ -351,7 +351,7 @@ describe("length limits (SPEC §4.3 maxLength on url and json, itemMinLength, it
       @UrlSchemes("https") @MaxLength(10) @Describe("Some URL value")
       U = "https://example.com";
 
-      @List() @MaxLength(2, { each: true }) @Describe("Some list value")
+      @List() @IsString({ each: true }) @MaxLength(2, { each: true }) @Describe("Some list value")
       L = ["abc"];
 
       @Json(undefined, { maxLength: 5 }) @Describe("Some JSON value")
@@ -360,7 +360,7 @@ describe("length limits (SPEC §4.3 maxLength on url and json, itemMinLength, it
     expect(() => docuconfValidate(BadDefaults, { terminationLog: false })).toThrow(/U: default[\s\S]*L: default[\s\S]*J: default/);
 
     class GoodDefault {
-      @List() @MaxLength(3, { each: true }) @Describe("Some list value")
+      @List() @IsString({ each: true }) @MaxLength(3, { each: true }) @Describe("Some list value")
       L = ["日本語"];
     }
     expect(() => docuconfValidate(GoodDefault, { terminationLog: false })).not.toThrow();

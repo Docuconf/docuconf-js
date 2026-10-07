@@ -16,10 +16,6 @@ export const env = createEnv({
     WORKER_COUNT: z.coerce.number().int().min(1).max(64).default(4).describe("Number of background order workers"),
   },
   runtimeEnv: process.env,
-  // T3's hook for invalid env: print every violation and exit, instead of
-  // throwing a DocuconfValidationError with a stack trace.
-  onValidationError: (issues) => {
-    console.error(`orders: invalid configuration:\n${issues.map((i) => `  - ${i.message}`).join("\n")}`);
-    process.exit(1);
-  },
+  // On invalid configuration: print every problem and exit 1.
+  exitOnError: true,
 });

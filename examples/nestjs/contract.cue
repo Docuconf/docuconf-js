@@ -40,12 +40,6 @@ contract.#Contract & {
 			description: "Reject writes during maintenance windows"
 			default:     false
 		}
-		NODE_ENV: {
-			type:        "enum"
-			description: "Environment the app runs in"
-			values: ["development", "production"]
-			default: "production"
-		}
 		PORT: {
 			type:        "int"
 			description: "Port the API listens on"

@@ -169,7 +169,7 @@ export function convertValue(
     case "list": {
       const encoding = decl.listEncoding ?? "csv";
       if (encoding === "indexed") return listItems(decl, [value], report);
-      if (encoding === "csv") return listItems(decl, value.split(decl.separator ?? ","), report);
+      if (encoding === "csv") return listItems(decl, splitCsv(value, decl.separator), report);
       let parsed: unknown;
       try {
         parsed = JSON.parse(value);
@@ -201,31 +201,45 @@ export function convertValue(
   }
 }
 
-/** Checks each item's type: strings for a string list, safe integers within the item bounds for an int list. */
+/**
+ * Splits a `csv` list. Whitespace around separators is dropped
+ * (`"a.com, b.com"` is two clean items), as SPEC §5 allows: the platform
+ * never renders it, but people writing env files do.
+ */
+export function splitCsv(value: string, separator = ","): string[] {
+  return value.split(separator).map((item) => (separator.trim() === "" ? item : item.trim()));
+}
+
+/**
+ * Checks each item's type: strings for a string list, safe integers within
+ * the item bounds for an int list. Reports every bad item, quoting the item
+ * (never the whole list).
+ */
 function listItems(decl: ValueDecl, items: readonly unknown[], report: VarReport, typed = false): { value: unknown; ok: boolean } {
+  let ok = true;
   if (decl.items !== "int") {
-    const bad = items.findIndex((item) => typeof item !== "string");
-    if (bad >= 0) {
-      report.add("invalid_type", `item ${bad + 1}: expected a string${report.got(items[bad])}`);
-      return { value: undefined, ok: false };
+    for (const [i, item] of items.entries()) {
+      if (typeof item === "string") continue;
+      report.add("invalid_type", `item ${i + 1}: expected a string${report.got(item)}`);
+      ok = false;
     }
+    if (!ok) return { value: undefined, ok: false };
     for (const [i, item] of (items as readonly string[]).entries()) {
       const p = itemLengthProblem(item, decl);
       if (p) {
         report.add(p.code, `item ${i + 1} ${p.message}${report.got(item)}`, true);
-        return { value: undefined, ok: false };
+        ok = false;
       }
     }
-    return { value: [...items], ok: true };
+    return ok ? { value: [...items], ok: true } : { value: undefined, ok: false };
   }
   const out: number[] = [];
   for (const [i, item] of items.entries()) {
     const r = typed && typeof item !== "number" ? { code: "invalid_type" as const, message: "expected an integer" } : intItem(item, decl);
     if ("code" in r) {
       report.add(r.code, `item ${i + 1}: ${r.message}${report.got(item)}`);
-      return { value: undefined, ok: false };
-    }
-    out.push(r.value);
+      ok = false;
+    } else out.push(r.value);
   }
-  return { value: out, ok: true };
+  return ok ? { value: out, ok: true } : { value: undefined, ok: false };
 }

@@ -13,11 +13,6 @@ import {
   docuconfValidate,
 } from "@docuconf/nestjs";
 
-export enum Environment {
-  Development = "development",
-  Production = "production",
-}
-
 export enum LogLevel {
   Debug = "debug",
   Info = "info",
@@ -41,9 +36,6 @@ export class Settings {
 }
 
 export class EnvironmentVariables {
-  @IsEnum(Environment) @Describe("Environment the app runs in")
-  NODE_ENV: Environment = Environment.Production;
-
   @IsInt() @Min(1) @Max(65535) @Describe("Port the API listens on")
   PORT: number = 3000;
 
@@ -82,4 +74,4 @@ export class EnvironmentVariables {
   tls?: TlsMaterial;
 }
 
-export const validate = docuconfValidate(EnvironmentVariables, { name: "orders-api" });
+export const validate = docuconfValidate(EnvironmentVariables, { name: "orders-api", exitOnError: true });

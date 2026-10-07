@@ -12,6 +12,7 @@ import {
   describeFiles,
   intBounds,
   itemLengthDeclProblems,
+  nextFloat,
   nonRe2Feature,
   parseDuration,
   validDescription,
@@ -54,6 +55,26 @@ const EXPORTED = new Set([
 ]);
 
 const STRING_CONSTRAINTS = ["isString", "matches", "minLength", "maxLength", "isLength", "isNotEmpty"];
+
+/** Constraints that only mean something for one kind of value; on another they would be dropped from the contract. */
+const ONLY_FOR: Record<string, { types: VarType[]; use: string }> = {
+  minLength: { types: ["string"], use: "a string" },
+  maxLength: { types: ["string", "url"], use: "a string or a url" },
+  isLength: { types: ["string"], use: "a string" },
+  matches: { types: ["string"], use: "a string" },
+  isNotEmpty: { types: ["string"], use: "a string" },
+  min: { types: ["int", "float"], use: "a number; for a duration use @Duration({ min })" },
+  max: { types: ["int", "float"], use: "a number; for a duration use @Duration({ max })" },
+  isPositive: { types: ["int", "float"], use: "a number" },
+  isNegative: { types: ["int", "float"], use: "a number" },
+  arrayMinSize: { types: ["list"], use: "a @List()" },
+  arrayMaxSize: { types: ["list"], use: "a @List()" },
+  arrayNotEmpty: { types: ["list"], use: "a @List()" },
+};
+
+function decoratorName(constraint: string): string {
+  return `@${constraint[0]!.toUpperCase()}${constraint.slice(1)}()`;
+}
 
 /** `servingTls` → `serving-tls`. */
 export function kebab(property: string): string {
@@ -109,8 +130,16 @@ function describeVar(
   }
   for (const c of cs) {
     if (!c.each && !EXPORTED.has(c.name) && !(type === "json" && (c.name === "nested" || c.name === "isObject"))) {
-      warnings.push(`${name}: @${c.name[0]!.toUpperCase()}${c.name.slice(1)}() is checked at boot, but the contract cannot express it`);
+      warnings.push(`${name}: ${decoratorName(c.name)} is checked at boot, but the contract cannot express it`);
     }
+    const only = c.each ? undefined : ONLY_FOR[c.name];
+    if (only && !only.types.includes(type)) p(`${decoratorName(c.name)} does not apply to a ${type} variable (it needs ${only.use}); remove it or change the type`);
+  }
+  const isUrl = find(cs, "isUrl")?.constraints[0] as { require_tld?: boolean } | undefined;
+  if (has(cs, "isUrl") && isUrl?.require_tld !== false) {
+    warnings.push(
+      `${name}: @IsUrl() rejects hosts without a top-level domain, such as localhost or db, and the contract cannot express that, so the platform would accept values the app rejects. Use @UrlSchemes("https", ...) or @IsUrl({ require_tld: false })`,
+    );
   }
   if ((type === "duration" || type === "list" || type === "json") && has(cs, "isString")) {
     p(`a ${type} property holds the parsed value, not the string; remove @IsString()`);
@@ -122,9 +151,12 @@ function describeVar(
   const decl: NestVarDecl = { name, property: name, type, secret, required: false, contract: c, constraints: cs, default: undefined };
 
   let def = initial;
-  if (type === "duration" && doc.duration?.default !== undefined) {
-    const ms = parseDuration(doc.duration.default);
-    if (ms === undefined || ms < 0) p(`@Duration default "${doc.duration.default}" is not a Go duration`);
+  // A duration default may be written as documented ("30s"), in
+  // @Duration({ default }) or as the initializer, or as milliseconds.
+  const durationDefault = doc.duration?.default ?? (type === "duration" && typeof initial === "string" ? initial : undefined);
+  if (type === "duration" && durationDefault !== undefined) {
+    const ms = parseDuration(durationDefault);
+    if (ms === undefined || ms < 0) p(`@Duration default "${durationDefault}" is not a Go duration such as "30s" or "1m30s"`);
     else def = ms;
   }
   const required = !has(cs, "isOptional") && def === undefined;
@@ -176,11 +208,10 @@ function describeVar(
     case "float": {
       let min = num(cs, "min");
       let max = num(cs, "max");
-      if (has(cs, "isPositive") || has(cs, "isNegative")) {
-        warnings.push(`${name}: exclusive bounds (@IsPositive, @IsNegative) are exported as inclusive min/max`);
-        if (has(cs, "isPositive")) min = Math.max(min ?? 0, 0);
-        if (has(cs, "isNegative")) max = Math.min(max ?? 0, 0);
-      }
+      // @IsPositive is > 0: exported as the smallest double above 0, so
+      // the platform rejects exactly what the app does.
+      if (has(cs, "isPositive")) min = Math.max(min ?? -Infinity, nextFloat(0, 1));
+      if (has(cs, "isNegative")) max = Math.min(max ?? Infinity, nextFloat(0, -1));
       if (min !== undefined) c["min"] = min;
       if (max !== undefined) c["max"] = max;
       break;
@@ -229,6 +260,8 @@ function describeVar(
       const items = has(cs, "isInt", true) ? "int" : "string";
       if (items === "string" && (has(cs, "isNumber", true) || has(cs, "isBoolean", true))) {
         p("list items must be strings or integers (@IsInt({ each: true }))");
+      } else if (!has(cs, "isInt", true) && !has(cs, "isString", true)) {
+        p("@List() needs @IsString({ each: true }) or @IsInt({ each: true }): emitDecoratorMetadata cannot see the item type");
       }
       decl.items = items;
       decl.separator = separator;
@@ -348,6 +381,14 @@ export function declare(cls: Class, opts: DeclareOptions = {}): NestDeclaration 
     }
     const d = describeVar(cls, property, cs, doc, defaults[property], problems, warnings);
     if (d) vars.set(property, d);
+  }
+  // A property with a value but no decorator is invisible to docuconf: it
+  // is not exported, yet the app may read it through ConfigService.
+  for (const property of Object.keys(defaults)) {
+    if (names.includes(property)) continue;
+    problems.push(
+      `${property}: has a default but no decorators, so docuconf cannot see it and the contract leaves it out; add @Describe("...") and a type decorator such as @IsString(), or remove the property`,
+    );
   }
   checkDefaults(cls, vars, problems);
   const fileContracts = describeFiles(files, vars, problems, schemaAdapter, {

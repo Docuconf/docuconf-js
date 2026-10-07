@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@t3-oss/env-core";
-import { type ConfigFileOptions, type FileInput, makeFileInput } from "@docuconf/core";
+import { type ConfigFileOptions, type FileInput, makeFileInput } from "@docuconf/core/pure";
 
 export {
   binaryFile,
@@ -22,7 +22,7 @@ export {
   type TextFileOptions,
   type TlsFileOptions,
   type TlsMaterial,
-} from "@docuconf/core";
+} from "@docuconf/core/pure";
 export type { ConfigFileOptions };
 
 /** A structured config file (`json` or `yaml`) validated against `schema` at boot. */

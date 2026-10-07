@@ -9,9 +9,11 @@ Apps do not use it directly. Use the SDK for your configuration library:
 - [`@docuconf/t3`](https://www.npmjs.com/package/@docuconf/t3) for T3 Env and Zod;
 - [`@docuconf/nestjs`](https://www.npmjs.com/package/@docuconf/nestjs) for NestJS (`@nestjs/config` and class-validator).
 
-The exception is contract-first mode, below. The rest of the API follows what those SDKs need and may change in any
+The packages are not on npm yet; install them from a checkout as the SDK READMEs describe
+(`npm pack -w packages/core ...`). The exception is contract-first mode, below. The rest of the API follows what those SDKs need and may change in any
 minor version. It ships ES module and CommonJS builds; the
-`@docuconf/core/loader` entry point (module loading for the export CLIs) is ES module only.
+`@docuconf/core/loader` and `@docuconf/core/cli` entry points (the export CLIs) are ES module only, and
+`@docuconf/core/pure` has everything that needs no Node built-ins, for browser builds.
 
 ## Contract-first mode
 
@@ -24,10 +26,12 @@ cue export ./contract.cue --out json > contract.json
 
 ```ts
 import { readFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { loadContract } from "@docuconf/core";
 
-const env = loadContract(readFileSync("contract.json", "utf8"));
-server.listen(env.PORT as number);
+// exitOnError: on a problem, print every one and exit 1.
+const env = loadContract(readFileSync("contract.json", "utf8"), { exitOnError: true });
+createServer((req, res) => res.end("ok")).listen(env.PORT as number);
 ```
 
 It runs the same checks as the SDKs' boot validation and parses every wire encoding (SPEC §5): lists as `csv` (with the
@@ -40,8 +44,9 @@ Length limits (`minLength`/`maxLength` on a `string`, `maxLength` on a `url` or 
 on each item of a `string` list after splitting) count characters, meaning Unicode code points, not UTF-16 units; a `json`
 value is measured as received, before parsing. They are `out_of_range`, and a secret's message gives only its length.
 
-On failure it throws `DocuconfValidationError` with every violation, after writing them to the termination log.
-Options: `env` (default `process.env`), `terminationLog`, and `validateJson`, a function that checks a `json` value
+On failure it writes every violation to the termination log, then, with `exitOnError: true`, prints
+`docuconf: N configuration problems:` with one line per problem and exits 1; otherwise (and always under a test runner)
+it throws `DocuconfValidationError`. Options: `env` (default `process.env`), `terminationLog`, `exitOnError`, and `validateJson`, a function that checks a `json` value
 against the variable's JSON Schema (`decl.contract.schema`) with the validator of your choice; without it, `json` values
 are only parsed. `checkContract` returns `{ values, violations }` instead of throwing, and `parseContract` reads a
 contract once for repeated checks. Contract-first mode checks variables only: file inputs in the contract are not

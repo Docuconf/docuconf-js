@@ -5,7 +5,7 @@ import "reflect-metadata";
 import { Inject, Injectable, Module } from "@nestjs/common";
 import { ConfigModule, ConfigService } from "@nestjs/config";
 import { Test } from "@nestjs/testing";
-import { IsEnum, IsInt, IsOptional, Max, Min } from "class-validator";
+import { IsEnum, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { fileRoot } from "../../core/test/support/certs.ts";
 import { z } from "zod";
@@ -31,7 +31,7 @@ class EnvironmentVariables {
   @Duration({ default: "30s" }) @Describe("Upstream request timeout")
   REQUEST_TIMEOUT!: number;
 
-  @IsOptional() @List() @Describe("CORS origins allowed to call the API")
+  @IsOptional() @List() @IsString({ each: true }) @Describe("CORS origins allowed to call the API")
   ALLOWED_ORIGINS?: string[];
 
   @TextFile({ path: "/etc/app/license/license.key", description: "Licence key", required: true })

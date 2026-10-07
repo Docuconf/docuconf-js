@@ -4,12 +4,16 @@ JavaScript and TypeScript SDKs for [docuconf](https://github.com/docuconf): type
 application and the Kubernetes platform that runs it. Each SDK extends a configuration library you already use,
 exports your declaration as a CUE contract, and validates the real environment and mounted files at boot.
 
-**Example:** the orders service, [with T3 Env](examples/orders-t3/) and [with NestJS](examples/orders-nestjs/).
+**Examples:** the orders service [with T3 Env](examples/orders-t3/) and [with NestJS](examples/orders-nestjs/), and a
+[Next.js app](examples/next-t3/) that validates at server start and shares `env.ts` with client components.
+
+The packages are not on npm yet. Each SDK's README starts with how to install it from a checkout (`npm pack`, then
+`npm install` of the tarballs); `npm install @docuconf/t3` and `npm install @docuconf/nestjs` work from the first release.
 
 | Package | For | |
 |---|---|---|
-| [`@docuconf/t3`](packages/t3) | [T3 Env](https://env.t3.gg) with Zod 4, in any Node app | [README](packages/t3/README.md), [example](examples/t3) |
-| [`@docuconf/nestjs`](packages/nestjs) | NestJS: `@nestjs/config` with a class-validator class | [README](packages/nestjs/README.md), [example](examples/nestjs) |
+| [`@docuconf/t3`](packages/t3) | [T3 Env](https://env.t3.gg) with Zod 4, in any Node app and in Next.js (`@docuconf/t3/next`) | [README](packages/t3/README.md), [example](examples/orders-t3), [Next.js](examples/next-t3) |
+| [`@docuconf/nestjs`](packages/nestjs) | NestJS: `@nestjs/config` with a class-validator class | [README](packages/nestjs/README.md), [example](examples/orders-nestjs) |
 | [`@docuconf/core`](packages/core) | Shared by both: contract writer, file checks, violations, durations, RE2, JSON Schema; contract-first mode | [README](packages/core/README.md) |
 
 Both SDKs implement [spec v1alpha1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md), write contracts
@@ -20,12 +24,13 @@ does not layer configuration files, so there is nothing for an overlay to slot i
 
 ```
 packages/core           @docuconf/core    ESM + CommonJS
-packages/t3             @docuconf/t3      ESM (CommonJS apps load it with require(), Node 22.12+)
+packages/t3             @docuconf/t3      ESM (CommonJS apps load it with require(), Node 22.12+), a browser build, /next
 packages/nestjs         @docuconf/nestjs  ESM + CommonJS
-examples/t3             a plain Node HTTPS server
-examples/nestjs         a NestJS app
 examples/orders-t3      the orders example: a Node http service with T3 Env (workspace member)
 examples/orders-nestjs  the orders example: a NestJS app (workspace member)
+examples/next-t3        a Next.js app (not a workspace member: its smoke.sh installs the packed packages)
+examples/t3             test fixture: an HTTPS server with file inputs, against the t3 sources
+examples/nestjs         test fixture: a NestJS app with file inputs
 ```
 
 The repository is an npm workspace. In development, the packages and tests resolve each other's TypeScript sources
@@ -40,7 +45,12 @@ npm run typecheck   # every package
 npm test            # every package's tests (vitest projects); vets exported contracts with cue when installed
 npm run build       # core first, then the SDKs, then the orders examples
 npm run smoke       # installs the packed packages into clean projects; runs the orders examples' smoke.sh
+bash examples/next-t3/smoke.sh   # the Next.js example: installs Next.js and the packed packages in a temporary copy
 ```
+
+The SDK CLIs are `docuconf-t3` and `docuconf-nestjs` (the platform's Go CLI is `docuconf`). Every TypeScript block in a
+package README is a file under that package's `readme/` directory (or an example), compiled by the typecheck; a test
+fails when a README block and its file differ.
 
 `npx vitest run --project nestjs` runs one package's tests. The export tests run `cue vet -c` against the meta-schema
 in a checkout of [docuconf-go](https://github.com/docuconf/docuconf-go) (default `../docuconf-go/spec/cue`, or

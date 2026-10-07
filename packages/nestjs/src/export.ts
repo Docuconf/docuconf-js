@@ -16,12 +16,15 @@ export interface ExportResult {
  * returns its input unchanged, so a module that also calls
  * ConfigModule.forRoot() loads without a real environment.
  */
-export async function exportModule(file: string, opts: ContractOptions & { exportName?: string } = {}): Promise<ExportResult> {
-  const { exportName, ...contractOpts } = opts;
+export async function exportModule(
+  file: string,
+  opts: ContractOptions & { exportName?: string; tsconfig?: string | undefined } = {},
+): Promise<ExportResult> {
+  const { exportName, tsconfig, ...contractOpts } = opts;
   const session = beginExport();
   let mod: Record<string, unknown>;
   try {
-    mod = ((await importForExport(resolve(file))) ?? {}) as Record<string, unknown>;
+    mod = ((await importForExport(resolve(file), { tsconfig })) ?? {}) as Record<string, unknown>;
   } finally {
     endExport();
   }

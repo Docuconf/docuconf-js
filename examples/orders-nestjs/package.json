@@ -8,7 +8,8 @@
     "build": "rm -rf dist && tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "export": "docuconf-nestjs export src/orders.config.ts --out contract.cue",
-    "smoke": "bash smoke.sh"
+    "smoke": "bash smoke.sh",
+    "check": "docuconf-nestjs export src/orders.config.ts --check contract.cue"
   },
   "dependencies": {
     "@docuconf/nestjs": "*",
