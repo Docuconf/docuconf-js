@@ -31,7 +31,8 @@ server.listen(env.PORT as number);
 ```
 
 It runs the same checks as the SDKs' boot validation and parses every wire encoding (SPEC §5): lists as `csv` (with the
-contract's `separator`), `json` or `indexed` (`NAME__0`, `NAME__1`, ...), and durations as `go`, `iso8601` (`PT1M30S`,
+contract's `separator`), `json` or `indexed` (`NAME__0`, `NAME__1`, ..., numbered from 0 with no gap, else `invalid_type`; a suffix that is
+not an index, such as `NAME__HOST`, is not an item), and durations as `go`, `iso8601` (`PT1M30S`,
 `PT1.5S`), `seconds` (`90`, `0.25`) or `timespan` (`[d.]hh:mm:ss[.fffffff]`). Values are typed as in the SDKs: `int`
 and `float` are numbers, durations milliseconds, lists arrays, `json` the parsed value, absent optional variables
 `undefined`. An `int` beyond ±`Number.MAX_SAFE_INTEGER`, as an `int` variable or a list item, is `out_of_range`.
