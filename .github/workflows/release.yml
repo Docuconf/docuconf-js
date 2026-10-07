@@ -23,10 +23,15 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - name: Pick the docuconf-go ref
+        id: dcref
+        run: echo "ref=$(tr -d '[:space:]' < .github/docuconf-go.ref)" >> "$GITHUB_OUTPUT"
+      - name: Check out docuconf-go
+        uses: actions/checkout@v4
         with:
           repository: docuconf/docuconf-go
           path: docuconf-go
+          ref: ${{ steps.dcref.outputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -97,10 +102,15 @@ jobs:
       packages: write # publish to npm.pkg.github.com
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/checkout@v4
+      - name: Pick the docuconf-go ref
+        id: dcref
+        run: echo "ref=$(tr -d '[:space:]' < .github/docuconf-go.ref)" >> "$GITHUB_OUTPUT"
+      - name: Check out docuconf-go
+        uses: actions/checkout@v4
         with:
           repository: docuconf/docuconf-go
           path: docuconf-go
+          ref: ${{ steps.dcref.outputs.ref }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22
