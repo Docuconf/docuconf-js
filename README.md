@@ -4,6 +4,8 @@ JavaScript and TypeScript SDKs for [docuconf](https://github.com/docuconf): type
 application and the Kubernetes platform that runs it. Each SDK extends a configuration library you already use,
 exports your declaration as a CUE contract, and validates the real environment and mounted files at boot.
 
+**Example:** the orders service, [with T3 Env](examples/orders-t3/) and [with NestJS](examples/orders-nestjs/).
+
 | Package | For | |
 |---|---|---|
 | [`@docuconf/t3`](packages/t3) | [T3 Env](https://env.t3.gg) with Zod 4, in any Node app | [README](packages/t3/README.md), [example](examples/t3) |
@@ -17,11 +19,13 @@ does not layer configuration files, so there is nothing for an overlay to slot i
 ## Layout
 
 ```
-packages/core     @docuconf/core    ESM + CommonJS
-packages/t3       @docuconf/t3      ESM (CommonJS apps load it with require(), Node 22.12+)
-packages/nestjs   @docuconf/nestjs  ESM + CommonJS
-examples/t3       a plain Node HTTPS server
-examples/nestjs   a NestJS app
+packages/core           @docuconf/core    ESM + CommonJS
+packages/t3             @docuconf/t3      ESM (CommonJS apps load it with require(), Node 22.12+)
+packages/nestjs         @docuconf/nestjs  ESM + CommonJS
+examples/t3             a plain Node HTTPS server
+examples/nestjs         a NestJS app
+examples/orders-t3      the orders example: a Node http service with T3 Env (workspace member)
+examples/orders-nestjs  the orders example: a NestJS app (workspace member)
 ```
 
 The repository is an npm workspace. In development, the packages and tests resolve each other's TypeScript sources
@@ -34,8 +38,8 @@ through the `@docuconf/source` export condition (`customConditions` in `tsconfig
 npm ci
 npm run typecheck   # every package
 npm test            # every package's tests (vitest projects); vets exported contracts with cue when installed
-npm run build       # core first, then the SDKs
-npm run smoke       # installs the packed packages into clean projects
+npm run build       # core first, then the SDKs, then the orders examples
+npm run smoke       # installs the packed packages into clean projects; runs the orders examples' smoke.sh
 ```
 
 `npx vitest run --project nestjs` runs one package's tests. The export tests run `cue vet -c` against the meta-schema

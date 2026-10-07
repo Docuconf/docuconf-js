@@ -49,9 +49,27 @@ jobs:
           # The shared conformance suite (SPEC §12), run by @docuconf/core's tests.
           DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
           DOCUCONF_REQUIRE_CONFORMANCE: "1"
+      # Builds the packages, then the orders examples (workspace members)
+      # against them.
       - run: npm run build
+      # npm ci could not link the SDKs' CLIs before their dist existed.
+      - run: npm rebuild --ignore-scripts
       # The NestJS example compiles against the built packages, as an app would.
       - run: npx tsc -p examples/nestjs --noEmit
+      # The orders examples: the committed contract.cue must be the one the
+      # app exports, and must pass the meta-schema.
+      - name: Check the orders examples' contracts
+        run: |
+          for ex in orders-t3 orders-nestjs; do
+            npm run export -w "examples/$ex"
+            git diff --exit-code -- "examples/$ex/contract.cue"
+            mkdir -p "docuconf-go/spec/cue/$ex"
+            cp "examples/$ex/contract.cue" "docuconf-go/spec/cue/$ex/"
+            (cd docuconf-go/spec/cue && cue vet -c "./$ex")
+          done
       # Install the packed packages into clean projects: t3 from .mjs and .cjs,
-      # nestjs in a CommonJS NestJS 11 app and an ESM NestJS 12 consumer.
+      # nestjs in a CommonJS NestJS 11 app and an ESM NestJS 12 consumer. Then
+      # each orders example's smoke.sh: start it with valid env and check
+      # /healthz and /config; start it with PORT=0 and no DATABASE_URL and
+      # check it fails with missing_required and out_of_range.
       - run: npm run smoke

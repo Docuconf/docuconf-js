@@ -7,11 +7,13 @@
   "workspaces": [
     "packages/core",
     "packages/t3",
-    "packages/nestjs"
+    "packages/nestjs",
+    "examples/orders-t3",
+    "examples/orders-nestjs"
   ],
   "scripts": {
     "build": "npm run build --workspaces",
-    "typecheck": "npm run typecheck --workspaces",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "vitest run",
     "smoke": "npm run smoke --workspaces --if-present"
   },
