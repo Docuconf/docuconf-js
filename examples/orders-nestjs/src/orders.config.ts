@@ -28,6 +28,15 @@ export class OrdersConfig {
   @Duration({ min: "1s", max: "5m", default: "30s" }) @Describe("Timeout for a single request")
   REQUEST_TIMEOUT!: number;
 
+  /**
+   * Number of background order workers.
+   *
+   * Each worker holds one database connection, so keep this below the
+   * pool size of {@link DATABASE_URL}'s server.
+   *
+   * - Raise it when the order queue backs up.
+   * - Lower it when the database is the bottleneck.
+   */
   @IsInt() @Min(1) @Max(64) @Describe("Number of background order workers")
   WORKER_COUNT: number = 4;
 }

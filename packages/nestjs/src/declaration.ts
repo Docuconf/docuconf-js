@@ -10,6 +10,7 @@ import {
   closeSchema,
   contractDefault,
   describeFiles,
+  detailsProblem,
   intBounds,
   itemLengthDeclProblems,
   nextFloat,
@@ -148,6 +149,11 @@ function describeVar(
 
   const secret = doc.secret === true;
   const c: Record<string, unknown> = { type, description: doc.description ?? "" };
+  if (doc.details !== undefined) {
+    const bad = detailsProblem(doc.details);
+    if (bad !== undefined) p(`@Details: ${bad}`);
+    else c["details"] = doc.details;
+  }
   const decl: NestVarDecl = { name, property: name, type, secret, required: false, contract: c, constraints: cs, default: undefined };
 
   let def = initial;
@@ -375,7 +381,8 @@ export function declare(cls: Class, opts: DeclareOptions = {}): NestDeclaration 
     if (doc.file) {
       const name = doc.file.name ?? kebab(property);
       if (files[name] !== undefined) problems.push(`${property}: file input name "${name}" is also used by ${fileProperties.get(name)}`);
-      files[name] = doc.file.input;
+      const input = doc.file.input;
+      files[name] = doc.details === undefined ? input : { ...input, options: { ...input.options, details: doc.details } };
       fileProperties.set(name, property);
       continue;
     }

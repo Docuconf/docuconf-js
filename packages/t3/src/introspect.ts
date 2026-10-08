@@ -4,6 +4,7 @@ import {
   type VarType,
   checkVarName,
   cleanPattern,
+  detailsProblem,
   contractDefault,
   intBounds,
   nextFloat,
@@ -90,6 +91,13 @@ export function describeVar(
   const defaultOut = unset.issues === undefined ? unset.value : undefined;
 
   const c: Record<string, unknown> = { type, description: description ?? "" };
+  // details: annotate(schema, { details }) or Zod's .meta({ details }).
+  const details = ann?.details ?? (typeof inJs["details"] === "string" ? inJs["details"] : outJs?.["details"]);
+  if (details !== undefined) {
+    const bad = detailsProblem(details);
+    if (bad !== undefined) problems.push(`${name}: ${bad}`);
+    else c["details"] = details;
+  }
   if (required) c["required"] = true;
   if (isSecret) c["secret"] = true;
   if (ann?.group !== undefined) c["group"] = ann.group;

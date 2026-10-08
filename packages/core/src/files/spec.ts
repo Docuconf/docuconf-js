@@ -8,8 +8,14 @@ export type KeyAlgorithm = "RSA" | "ECDSA" | "Ed25519";
 export interface FileCommonOptions<R extends boolean = boolean> {
   /** Where the app reads the input: a file, or a directory for TLS. Absolute. */
   path: string;
-  /** At least 5 characters. */
+  /** What the input is, in one sentence or phrase: plain text, at least 5 characters. */
   description: string;
+  /**
+   * Longer documentation for generated docs (SPEC §4.2): CommonMark, not
+   * blank, at most 4000 characters. Never read at runtime. The export CLI
+   * also takes it from the input's doc comment.
+   */
+  details?: string;
   /** Boot fails if the file is absent. Default false. */
   required?: R;
   /** Content must come from a secret store. Forced for TLS and keystores. */

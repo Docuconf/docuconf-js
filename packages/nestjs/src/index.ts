@@ -4,6 +4,7 @@ export {
   ConfigFile,
   Deprecated,
   Describe,
+  Details,
   Duration,
   Examples,
   Group,

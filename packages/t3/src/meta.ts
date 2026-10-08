@@ -11,7 +11,7 @@ import type { StandardSchemaV1 } from "@t3-oss/env-core";
 export const TYPE_KEY = "x-docuconf";
 /** `true` when the variable is a secret. A separate key so wrappers never hide the type. */
 export const SECRET_KEY = "x-docuconf-secret";
-/** Optional docs metadata: group, examples, configKey, deprecated. */
+/** Optional docs metadata: details, group, examples, configKey, deprecated. */
 export const ANNOTATIONS_KEY = "x-docuconf-annotations";
 
 export type DocuconfTypeMeta =
@@ -33,6 +33,13 @@ export type DocuconfTypeMeta =
   | { type: "json"; schema: Record<string, unknown>; maxLength?: number };
 
 export interface Annotations {
+  /**
+   * Longer documentation for generated docs (SPEC §4.2): CommonMark, not
+   * blank, at most 4000 characters, never read at runtime. With Zod,
+   * `.meta({ details })` works too, and the export CLI also reads the
+   * property's TSDoc/JSDoc comment.
+   */
+  details?: string;
   group?: string;
   examples?: string[];
   configKey?: string;

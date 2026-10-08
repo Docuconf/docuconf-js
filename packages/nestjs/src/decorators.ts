@@ -8,6 +8,7 @@ import {
   type TlsFileOptions,
   binaryFile,
   caBundleFile,
+  callerFile,
   keystoreFile,
   makeFileInput,
   textFile,
@@ -20,6 +21,7 @@ import {
  */
 export interface PropertyMeta {
   description?: string;
+  details?: string;
   secret?: boolean;
   schemes?: string[];
   duration?: DurationOptions;
@@ -37,12 +39,17 @@ export interface PropertyMeta {
 export type JsonSchemaSource = (abstract new (...args: never[]) => object) | object;
 
 const store = new WeakMap<object, Map<string, PropertyMeta>>();
+/** The file each class was declared in, for its doc comments at export time. */
+const sources = new WeakMap<object, string | undefined>();
 
 function update(target: object, property: string | symbol, patch: (m: PropertyMeta) => void): void {
   if (typeof property !== "string") throw new TypeError("docuconf: decorated properties must have string names");
   const ctor = (target as { constructor: object }).constructor;
   let props = store.get(ctor);
-  if (!props) store.set(ctor, (props = new Map()));
+  if (!props) {
+    store.set(ctor, (props = new Map()));
+    sources.set(ctor, callerFile());
+  }
   const m = props.get(property) ?? {};
   patch(m);
   props.set(property, m);
@@ -59,11 +66,26 @@ export function docuconfMetadata(cls: object): Map<string, PropertyMeta> {
   return out;
 }
 
+/** The source file a class with docuconf decorators was declared in, as the stack showed it. */
+export function sourceFileOf(cls: object): string | undefined {
+  return sources.get(cls);
+}
+
 type Decorator = (target: object, propertyKey: string | symbol) => void;
 
 /** The variable's (or file input's) description for the contract: at least 5 characters. */
 export function Describe(description: string): Decorator {
   return (t, p) => update(t, p, (m) => void (m.description = description));
+}
+
+/**
+ * Longer documentation of the variable or file input for generated docs
+ * (SPEC §4.2): CommonMark, not blank, at most 4000 characters, never read at
+ * runtime. `docuconf-nestjs export` also takes details from the property's
+ * TSDoc/JSDoc comment; this decorator wins over it.
+ */
+export function Details(details: string): Decorator {
+  return (t, p) => update(t, p, (m) => void (m.details = details));
 }
 
 /**

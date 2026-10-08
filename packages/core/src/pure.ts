@@ -10,6 +10,7 @@ export {
   type Generator,
 } from "./contract.ts";
 export { cueFields, cueLabel, cueValue } from "./cue.ts";
+export { MAX_DETAILS, applyDocComments, callerFile, detailsFromDocComment, detailsProblem, jsDocText, jsDocToMarkdown, setDetails } from "./doc-text.ts";
 export {
   CONTRACT_DURATION,
   DURATION_ENCODINGS,
