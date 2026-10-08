@@ -4,6 +4,8 @@ JavaScript and TypeScript SDKs for [docuconf](https://github.com/docuconf): type
 application and the Kubernetes platform that runs it. Each SDK extends a configuration library you already use,
 exports your declaration as a CUE contract, and validates the real environment and mounted files at boot.
 
+Documentation: [docuconf.dev](https://docuconf.dev) · [TypeScript guide](https://docuconf.dev/languages/typescript/) · [NestJS guide](https://docuconf.dev/languages/nestjs/)
+
 **Examples:** the orders service [with T3 Env](examples/orders-t3/) and [with NestJS](examples/orders-nestjs/), and a
 [Next.js app](examples/next-t3/) that validates at server start and shares `env.ts` with client components.
 
