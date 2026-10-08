@@ -37,6 +37,10 @@ examples/t3             test fixture: an HTTPS server with file inputs, against 
 examples/nestjs         test fixture: a NestJS app with file inputs
 ```
 
+Each example also commits `CONFIG.md`, `CONFIG.agents.md` and `docs.json`, generated from its `contract.cue` by
+`docuconf docs` (for example [`examples/orders-t3/CONFIG.md`](examples/orders-t3/CONFIG.md) and
+[`CONFIG.agents.md`](examples/orders-t3/CONFIG.agents.md)); the examples' READMEs give the commands, and CI checks them.
+
 The repository is an npm workspace. In development, the packages and tests resolve each other's TypeScript sources
 through the `@docuconf/source` export condition (`customConditions` in `tsconfig.base.json`, aliases in
 `vitest.shared.ts`); builds and published packages use `dist`.

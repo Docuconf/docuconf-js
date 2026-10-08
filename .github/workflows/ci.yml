@@ -97,6 +97,24 @@ jobs:
             cp "examples/$ex/contract.cue" "docuconf-go/spec/cue/$ex/"
             (cd docuconf-go/spec/cue && cue vet -c "./$ex")
           done
+      # Every example's CONFIG.md, CONFIG.agents.md and docs.json are
+      # generated from its contract.cue by docuconf docs, built from the
+      # docuconf-go checkout above; they must match what it writes today.
+      # These are the examples' README commands.
+      - name: Generated docs are up to date
+        run: |
+          (cd docuconf-go/cmd/docuconf && go build -o "$RUNNER_TEMP/docuconf" .)
+          # The step above re-exports contract.cue in place; check the docs
+          # against the committed contracts (and their generator.version).
+          git checkout -- examples/*/contract.cue
+          for ex in orders-t3 orders-nestjs next-t3 t3 nestjs; do
+            (
+              cd "examples/$ex"
+              "$RUNNER_TEMP/docuconf" docs contract.cue --check CONFIG.md
+              "$RUNNER_TEMP/docuconf" docs contract.cue --format agents --check CONFIG.agents.md
+              "$RUNNER_TEMP/docuconf" docs contract.cue --format model --check docs.json
+            )
+          done
       # Install the packed packages into clean projects: t3 from .mjs and .cjs,
       # nestjs in a CommonJS NestJS 11 app and an ESM NestJS 12 consumer. Then
       # each orders example's smoke.sh: start it with valid env and check

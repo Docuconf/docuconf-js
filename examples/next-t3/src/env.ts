@@ -8,7 +8,7 @@ import { logLevel } from "@/schemas";
 export const env = createEnv({
   name: "orders-web",
   server: {
-    DATABASE_URL: secret(url({ schemes: ["postgres"] })).describe("Postgres connection string for the orders database"),
+    DATABASE_URL: secret(url({ schemes: ["postgres"], maxLength: 2048 })).describe("Postgres connection string for the orders database"),
     LOG_LEVEL: logLevel,
     ALLOWED_ORIGINS: list(z.string(), { minItems: 1 }).default(["http://localhost:3000"]).describe("CORS origins allowed to call the API"),
     REQUEST_TIMEOUT: duration({ min: "1s", max: "5m", default: "30s" }).describe("Timeout for a single request"),
