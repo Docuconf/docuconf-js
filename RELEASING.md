@@ -35,15 +35,29 @@ versions such as `0.2.0-beta.1` are published under the `next` dist-tag rather t
 
 ## Each release
 
-1. **@docuconf/core, if it changed.** Update `version` in `packages/core/package.json`, and the `@docuconf/core`
-   dependency (`^<version>`) in `packages/t3/package.json` and `packages/nestjs/package.json` (a test fails if they
-   differ). Commit, then `git tag core-v0.2.0 && git push origin core-v0.2.0`. The SDK releases check that the core
-   version they need is on npm, so core goes first.
-2. **An SDK.** Update `version` in its `package.json` and `SDK_VERSION` in its `src/version.ts` (a test fails if they
-   differ), and commit. Then tag and push:
-   - `@docuconf/t3`: `git tag v0.2.0 && git push origin v0.2.0`
-   - `@docuconf/nestjs`: `git tag nestjs-v0.2.0 && git push origin nestjs-v0.2.0`
-3. The workflow checks the tag matches the package version, runs every check, builds, and publishes that one package.
+Releases are automated with [release-please](https://github.com/googleapis/release-please); see
+[CONTRIBUTING.md](CONTRIBUTING.md#how-releases-happen) for the commit conventions it reads.
+
+1. Merge the open release PR (`chore: release main`). It already bumps `version` in each changed package's
+   `package.json`, `SDK_VERSION` in the SDKs' `src/version.ts`, and the SDKs' `@docuconf/core` dependency
+   (`^<version>`) when core is released, and it updates `package-lock.json` and each package's `CHANGELOG.md`. The
+   golden files and example contracts do not need regenerating: their comparisons ignore
+   `metadata.generator.version`.
+2. release-please tags the merge commit once per released package, in the formats in the table above
+   (`core-vX.Y.Z`, `vX.Y.Z`, `nestjs-vX.Y.Z`), and creates a GitHub release for each.
+3. `.github/workflows/release.yml` runs once per tag: it checks the tag matches the package version, runs every
+   check, builds, and publishes that one package.
+
+The SDK releases check that the `@docuconf/core` version they need is on npm, so core must be published first.
+
+- **Without the release GitHub App** (`GITHUB_TOKEN` fallback), tags do not trigger `release.yml` by themselves.
+  `.github/workflows/release-please.yml` dispatches it instead: a `core-v` tag first, waiting for that run to
+  finish, then the SDK tags.
+- **With the App**, each tag push triggers `release.yml` at once, so when core and an SDK are released together the
+  SDK run can start before core is on npm and fail that check. Re-run it after the core run has published:
+  `gh run rerun <run-id>`, or `gh workflow run release.yml --ref v0.2.0`.
+
+To redo any release by hand: `gh workflow run release.yml --ref <tag>`.
 
 ## GitHub Packages and Releases
 

@@ -8,7 +8,7 @@ import { z } from "zod";
 import { createEnv, secret, toContract } from "../src/index.ts";
 import { main } from "../src/cli.ts";
 import { exportModule } from "../src/export.ts";
-import { SOURCE_CONDITIONS, canVet, cue, fmtCheck, requireVet, specCue, vet } from "../../core/test/support/cue.ts";
+import { SOURCE_CONDITIONS, canVet, cue, fmtCheck, requireVet, specCue, vet, withoutGeneratorVersion } from "../../core/test/support/cue.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = join(here, "fixtures/sample-env.ts");
@@ -27,7 +27,15 @@ describe("export", () => {
       mkdirSync(dirname(golden), { recursive: true });
       writeFileSync(golden, out);
     }
-    expect(out).toBe(readFileSync(golden, "utf8"));
+    expect(withoutGeneratorVersion(out)).toBe(withoutGeneratorVersion(readFileSync(golden, "utf8")));
+  });
+
+  it("ignores only the generator version when comparing with committed exports", async () => {
+    const { cue: out } = await exportModule(fixture);
+    const bumped = out.replace(/(\bversion:\s*)"[^"]*"/, '$1"99.0.0"');
+    expect(bumped).not.toBe(out);
+    expect(withoutGeneratorVersion(bumped)).toBe(withoutGeneratorVersion(out));
+    expect(withoutGeneratorVersion(out.replace('"Fraction of requests traced"', '"abc"'))).not.toBe(withoutGeneratorVersion(out));
   });
 
   it("exports a plain-JavaScript .mjs module", async () => {
@@ -58,7 +66,7 @@ describe("export", () => {
   it.skipIf(!canVet)("exports the example app to a valid, up-to-date contract", async () => {
     const example = join(here, "../../../examples/t3");
     const { cue: out } = await exportModule(join(example, "env.ts"));
-    expect(out).toBe(readFileSync(join(example, "contract.cue"), "utf8"));
+    expect(withoutGeneratorVersion(out)).toBe(withoutGeneratorVersion(readFileSync(join(example, "contract.cue"), "utf8")));
     expect(vet(out).output).toBe("");
   });
 
@@ -118,7 +126,7 @@ describe("export", () => {
   it("runs as a real process with Node's type stripping", () => {
     const bin = join(here, "../src/bin.ts");
     const out = execFileSync(process.execPath, ["--no-warnings", SOURCE_CONDITIONS, bin, "export", fixture], { encoding: "utf8" });
-    expect(out).toBe(readFileSync(golden, "utf8"));
+    expect(withoutGeneratorVersion(out)).toBe(withoutGeneratorVersion(readFileSync(golden, "utf8")));
   });
 
   it("falls back to jiti for extensionless TypeScript imports", () => {
