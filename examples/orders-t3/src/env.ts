@@ -8,7 +8,7 @@ export const env = createEnv({
   server: {
     PORT: z.coerce.number().int().min(1).max(65535).default(8080).describe("Port the HTTP server listens on"),
     LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info").describe("Minimum log level emitted"),
-    DATABASE_URL: secret(url({ schemes: ["postgres"] })).describe("Postgres connection string for the orders database"),
+    DATABASE_URL: secret(url({ schemes: ["postgres"], maxLength: 2048 })).describe("Postgres connection string for the orders database"),
     ALLOWED_ORIGINS: list(z.string(), { minItems: 1 })
       .default(["http://localhost:3000"])
       .describe("Comma-separated CORS origins allowed to call the API"),

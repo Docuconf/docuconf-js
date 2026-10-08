@@ -10,7 +10,7 @@
     "contract"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/docuconf/docuconf-js/tree/main/packages/core#readme",
+  "homepage": "https://docuconf.dev/languages/typescript/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/docuconf/docuconf-js.git",

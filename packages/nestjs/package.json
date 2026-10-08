@@ -13,7 +13,7 @@
     "contract"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/docuconf/docuconf-js/tree/main/packages/nestjs#readme",
+  "homepage": "https://docuconf.dev/languages/nestjs/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/docuconf/docuconf-js.git",

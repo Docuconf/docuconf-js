@@ -14,7 +14,7 @@ the NestJS version is in [`../orders-nestjs`](../orders-nestjs).
 |---|---|---|
 | `PORT` | int | 1 to 65535, default `8080` |
 | `LOG_LEVEL` | enum | `debug`, `info`, `warn`, `error`; default `info` |
-| `DATABASE_URL` | url | secret, required, scheme `postgres` |
+| `DATABASE_URL` | url | secret, required, scheme `postgres`, at most 2048 characters |
 | `ALLOWED_ORIGINS` | list of strings, comma-separated | at least 1 item; default `http://localhost:3000` |
 | `REQUEST_TIMEOUT` | duration (`30s`, `1m30s`) | 1s to 5m, default `30s` |
 | `WORKER_COUNT` | int | 1 to 64, default `4` |
@@ -60,6 +60,19 @@ npm run check    # docuconf-t3 export src/env.ts --check contract.cue: exits 1 w
 
 In this repository, after a fresh `npm ci && npm run build`, run `npm rebuild --ignore-scripts` once from the root, so
 npm links the `docuconf-t3` command to the build. CI runs `npm run check`.
+
+## Generated docs
+
+[`CONFIG.md`](CONFIG.md) (for developers), [`CONFIG.agents.md`](CONFIG.agents.md) (for AI agents) and `docs.json`
+(the docs model both are rendered from) are generated from `contract.cue` by the `docuconf` CLI from
+[docuconf-go](https://github.com/docuconf/docuconf-go); never edit them by hand. Regenerate them after exporting the
+contract (CI runs each with `--check` in place of `-o`, against the committed `contract.cue`):
+
+```sh
+docuconf docs contract.cue -o CONFIG.md
+docuconf docs contract.cue --format agents -o CONFIG.agents.md
+docuconf docs contract.cue --format model -o docs.json
+```
 
 ## Deploy
 

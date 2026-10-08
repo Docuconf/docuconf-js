@@ -2,7 +2,7 @@
 // validates the environment with, plus docuconf's decorators for what
 // class-validator has no word for (descriptions, secrets, URL schemes,
 // durations, lists).
-import { ArrayMinSize, IsEnum, IsInt, IsString, Max, Min } from "class-validator";
+import { ArrayMinSize, IsEnum, IsInt, IsString, Max, MaxLength, Min } from "class-validator";
 import { Describe, Duration, List, Secret, UrlSchemes, docuconfValidate } from "@docuconf/nestjs";
 
 export enum LogLevel {
@@ -19,7 +19,7 @@ export class OrdersConfig {
   @IsEnum(LogLevel) @Describe("Minimum log level emitted")
   LOG_LEVEL: LogLevel = LogLevel.Info;
 
-  @Secret() @UrlSchemes("postgres") @Describe("Postgres connection string for the orders database")
+  @Secret() @UrlSchemes("postgres") @MaxLength(2048) @Describe("Postgres connection string for the orders database")
   DATABASE_URL!: string;
 
   @List() @IsString({ each: true }) @ArrayMinSize(1) @Describe("Comma-separated CORS origins allowed to call the API")
