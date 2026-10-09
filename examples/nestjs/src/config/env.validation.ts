@@ -1,6 +1,6 @@
 // The service's configuration contract: the class the NestJS docs validate
 // the environment with, plus docuconf's decorators.
-import { IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, Min } from "class-validator";
+import { ArrayMaxSize, ArrayMinSize, IsBoolean, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
 import {
   ConfigFile,
   Describe,
@@ -53,6 +53,22 @@ export class EnvironmentVariables {
 
   @IsBoolean() @Describe("Reject writes during maintenance windows")
   MAINTENANCE_MODE: boolean = false;
+
+  /**
+   * Keys that verify the signature on incoming payment webhooks.
+   *
+   * A webhook is accepted when it is signed with any key in the list, so the key can be rotated without turning webhooks away. To rotate:
+   *
+   *  1. add the new key as the second item, and roll out;
+   *  2. switch the sender to the new key;
+   *  3. remove the old key, and roll out.
+   *
+   * Each key is 32 to 256 characters, so an empty or truncated key fails at boot. Without this variable, the service rejects every webhook.
+   */
+  @IsOptional() @Secret() @List() @IsString({ each: true }) @ArrayMinSize(1) @ArrayMaxSize(2)
+  @MinLength(32, { each: true }) @MaxLength(256, { each: true })
+  @Describe("Keys that verify the signature on incoming payment webhooks")
+  WEBHOOK_KEYS?: string[];
 
   @ConfigFile({
     format: "json",

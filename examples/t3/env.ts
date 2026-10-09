@@ -11,6 +11,20 @@ export const env = createEnv({
     REQUEST_TIMEOUT: duration({ default: "30s", max: "5m" }).describe("Timeout for upstream requests"),
     ALLOWED_ORIGINS: list(z.string()).optional().describe("CORS origins allowed to call the API"),
     MAINTENANCE_MODE: z.stringbool().default(false).describe("Reject writes during maintenance windows"),
+    /**
+     * Keys that verify the signature on incoming payment webhooks.
+     *
+     * A webhook is accepted when it is signed with any key in the list, so the key can be rotated without turning webhooks away. To rotate:
+     *
+     *  1. add the new key as the second item, and roll out;
+     *  2. switch the sender to the new key;
+     *  3. remove the old key, and roll out.
+     *
+     * Each key is 32 to 256 characters, so an empty or truncated key fails at boot. Without this variable, the service rejects every webhook.
+     */
+    WEBHOOK_KEYS: secret(list(z.string(), { minItems: 1, maxItems: 2, itemMinLength: 32, itemMaxLength: 256 }))
+      .optional()
+      .describe("Keys that verify the signature on incoming payment webhooks"),
   },
   files: {
     settings: configFile({

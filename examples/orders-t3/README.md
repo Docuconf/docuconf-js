@@ -5,10 +5,12 @@ The docuconf orders example: a Node `http` service whose configuration is declar
 the NestJS version is in [`../orders-nestjs`](../orders-nestjs).
 
 - [`src/env.ts`](src/env.ts): the declaration, `createEnv` with docuconf's `secret`, `url`, `list` and `duration`.
-- [`src/server.ts`](src/server.ts): `GET /healthz` returns `ok`; `GET /config` returns the typed values, with the secret
-  shown as `"***"`.
+- [`src/server.ts`](src/server.ts): `GET /healthz` returns `ok`; `GET /config` returns the typed values, with the secrets
+  shown as `"***"`; `POST /webhooks/payments` accepts a payment webhook signed with any key in `WEBHOOK_KEYS`.
+- [`src/webhook.ts`](src/webhook.ts): `verify`, which checks a webhook's `X-Signature` against every key.
 - [`contract.cue`](contract.cue): the contract, exported from `src/env.ts`. Do not edit it by hand.
-- [`smoke.sh`](smoke.sh): starts the built app with valid and invalid env and checks both.
+- [`smoke.sh`](smoke.sh): starts the built app with valid and invalid env and checks both, and posts signed webhooks.
+- [`test/webhook.test.ts`](test/webhook.test.ts): a key rotation, step by step, and the key sets that fail at boot.
 
 | Variable | Type | Rules |
 |---|---|---|
@@ -18,6 +20,7 @@ the NestJS version is in [`../orders-nestjs`](../orders-nestjs).
 | `ALLOWED_ORIGINS` | list of strings, comma-separated | at least 1 item; default `http://localhost:3000` |
 | `REQUEST_TIMEOUT` | duration (`30s`, `1m30s`) | 1s to 5m, default `30s` |
 | `WORKER_COUNT` | int | 1 to 64, default `4` |
+| `WEBHOOK_KEYS` | list of strings, comma-separated | secret, optional; 1 to 2 keys of 32 to 256 characters each |
 
 ## Run it
 
@@ -31,10 +34,11 @@ DATABASE_URL=postgres://orders:secret@localhost:5432/orders npm start
 
 ```sh
 curl localhost:8080/healthz   # ok
-curl localhost:8080/config    # {"PORT":8080,"LOG_LEVEL":"info","DATABASE_URL":"***","ALLOWED_ORIGINS":["http://localhost:3000"],"REQUEST_TIMEOUT":30000,"WORKER_COUNT":4}
+curl localhost:8080/config    # {"PORT":8080,"LOG_LEVEL":"info","DATABASE_URL":"***","ALLOWED_ORIGINS":["http://localhost:3000"],"REQUEST_TIMEOUT":30000,"WORKER_COUNT":4,"WEBHOOK_KEYS":"***"}
 ```
 
-`REQUEST_TIMEOUT` is in milliseconds. `npm run smoke` runs both checks of [`smoke.sh`](smoke.sh).
+`REQUEST_TIMEOUT` is in milliseconds; secrets are always `"***"`, set or not. `npm run smoke` runs the checks of
+[`smoke.sh`](smoke.sh).
 
 ## When the configuration is wrong
 
@@ -50,6 +54,39 @@ docuconf: 2 configuration problems:
 
 In Kubernetes the same lines go to `/dev/termination-log`, so `kubectl describe pod` shows them. `smoke.sh` checks this
 output line by line.
+
+## Rotate a key
+
+`WEBHOOK_KEYS` is a key set: `POST /webhooks/payments` accepts a body whose `X-Signature` header is the hex HMAC-SHA256
+of the body under any key in the list ([`src/webhook.ts`](src/webhook.ts)). A variable is read once, at start, so a new
+key reaches the service only when it restarts; with two keys valid at once, no webhook is turned away while that
+happens:
+
+1. Add the new key as the second item (`old,new` in the Secret), and roll out.
+2. Switch the sender to the new key.
+3. Remove the old key (`new`), and roll out.
+
+In the platform's values file the key set is, like every secret, a reference: one Secret key holding `old,new` while
+rotating.
+
+```yaml
+WEBHOOK_KEYS:
+  secretKeyRef: {name: orders-webhooks, key: keys}
+```
+
+The contract allows 1 or 2 keys of 32 to 256 characters each, so a trailing comma or a truncated key stops the service
+at boot instead of locking out the sender, and the error does not print the keys:
+
+```console
+$ DATABASE_URL=postgres://orders:secret@localhost:5432/orders \
+    WEBHOOK_KEYS=old-webhook-key-0123456789abcdef0123, node dist/server.js
+docuconf: 1 configuration problem:
+  - WEBHOOK_KEYS [out_of_range]: value is out of range (value hidden: secret)
+```
+
+[`test/webhook.test.ts`](test/webhook.test.ts) walks through a rotation (`npm test` at the repository root runs it),
+and [`smoke.sh`](smoke.sh) posts webhooks signed with both keys. [docuconf-go's SPEC section
+6.1](https://github.com/docuconf/docuconf-go/blob/main/spec/SPEC.md#61-rotation) covers rotation in general.
 
 ## Export the contract
 
