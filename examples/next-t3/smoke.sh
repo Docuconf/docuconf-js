@@ -23,6 +23,11 @@ cleanup() {
   [ "${KEEP_SMOKE:-}" = 1 ] || rm -rf "$work"
 }
 trap cleanup EXIT
+# GNU timeout is not on macOS: use gtimeout (Homebrew coreutils) or perl.
+if command -v timeout >/dev/null 2>&1; then with_timeout=(timeout)
+elif command -v gtimeout >/dev/null 2>&1; then with_timeout=(gtimeout)
+else with_timeout=(perl -e 'alarm shift; exec @ARGV or die "exec $ARGV[0]: $!\n"')
+fi
 fail() { echo "smoke: FAIL: $*" >&2; [ -f "$work/out.txt" ] && cat "$work/out.txt" >&2; exit 1; }
 
 core="$(cd "$root/packages/core" && npm pack --silent --pack-destination "$work")"
@@ -79,7 +84,7 @@ echo "smoke: ok: webhooks signed with the old or the new key are accepted; unsig
 
 status=0
 port="$(node -e 'const s = require("node:net").createServer().listen(0, () => { console.log(s.address().port); s.close(); })')"
-"${clean[@]}" WORKER_COUNT=999 WEBHOOK_KEYS="$old_key," timeout 60 "${next[@]}" start -p "$port" >"$work/out.txt" 2>&1 || status=$?
+"${clean[@]}" WORKER_COUNT=999 WEBHOOK_KEYS="$old_key," "${with_timeout[@]}" 60 "${next[@]}" start -p "$port" >"$work/out.txt" 2>&1 || status=$?
 [ "$status" -eq 1 ] || fail "next start with invalid configuration exited $status, want 1"
 grep -q '^docuconf: 3 configuration problems:$' "$work/out.txt" || fail "no docuconf header"
 grep -q '^  - DATABASE_URL \[missing_required\]: required, but not set$' "$work/out.txt" || fail "no DATABASE_URL line"
