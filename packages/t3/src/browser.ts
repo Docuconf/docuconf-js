@@ -6,8 +6,8 @@
 import { createEnv as t3CreateEnv } from "@t3-oss/env-core";
 import type * as Node from "./index.ts";
 
-export { annotate, duration, json, list, secret, url } from "./helpers.ts";
-export type { DurationOptions, ListOptions, UrlOptions } from "./helpers.ts";
+export { annotate, duration, int64, json, keySet, list, secret, url } from "./helpers.ts";
+export type { DurationOptions, Int64Options, JsonOptions, KeySetOptions, ListOptions, UrlOptions } from "./helpers.ts";
 export type { Annotations } from "./meta.ts";
 export {
   binaryFile,
@@ -31,6 +31,7 @@ export {
   DocuconfDeclarationError,
   DocuconfValidationError,
   ERROR_CODES,
+  KeySet,
   formatDuration,
   parseDuration,
   type ErrorCode,

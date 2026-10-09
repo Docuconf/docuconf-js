@@ -3,8 +3,8 @@
 A Next.js App Router app whose configuration is declared once, in [`src/env.ts`](src/env.ts), with T3 Env, Zod and
 `@docuconf/t3`, and used from a server component and a `"use client"` component.
 
-- [`src/env.ts`](src/env.ts): `createEnv` with server variables (a secret, a duration, a list) and one `NEXT_PUBLIC_`
-  client variable. One schema is imported through the `@/*` alias.
+- [`src/env.ts`](src/env.ts): `createEnv` with server variables (a secret, a duration, a list, a key set) and one
+  `NEXT_PUBLIC_` client variable. One schema is imported through the `@/*` alias.
 - [`src/instrumentation.ts`](src/instrumentation.ts): `registerEnv` from `@docuconf/t3/next` validates the environment
   when the server starts, and exits 1 if it is wrong.
 - [`src/app/page.tsx`](src/app/page.tsx): a dynamic page (`await connection()`), so it reads values at request time.
@@ -46,12 +46,12 @@ docuconf: 2 configuration problems:
 
 ## Rotate a key
 
-`WEBHOOK_KEYS` is a secret list of one or two keys of 32 to 256 characters each. `POST /webhooks/payments` accepts a
-body whose `X-Signature` header is the hex HMAC-SHA256 of the body under any key in the list. The server reads the
-variable once, at start, so a new key reaches it only when it restarts; with two keys valid at once, no webhook is
-turned away while that happens:
+`WEBHOOK_KEYS` is a key set (`keySet()`) of one or two keys of 32 to 256 characters each. `POST /webhooks/payments`
+accepts a body whose `X-Signature` header is the hex HMAC-SHA256 of the body under any key in the set, checked with
+the key set's `verify`. The server reads the variable once, at start, so a new key reaches it only when it restarts;
+with two keys valid at once, no webhook is turned away while that happens:
 
-1. Add the new key as the second item (`old,new` in the Secret), and roll out.
+1. Add the new key to the set (`old,new` in the Secret), and roll out.
 2. Switch the sender to the new key.
 3. Remove the old key (`new`), and roll out.
 

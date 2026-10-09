@@ -11,7 +11,7 @@ describe("README", () => {
     expect(missing.map((b) => `README.md:${b.line}\n${b.body}`)).toEqual([]);
   });
 
-  it("the root README has none either", () => {
-    expect(uncheckedBlocks(join(here, "../../../README.md"), []).map((b) => b.line)).toEqual([]);
+  it("the root README's blocks come from the orders example", () => {
+    expect(uncheckedBlocks(join(here, "../../../README.md"), [join(here, "../../../examples/orders-t3/src")]).map((b) => b.line)).toEqual([]);
   });
 });

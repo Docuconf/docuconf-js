@@ -1,7 +1,7 @@
 import { formatDuration } from "./duration.ts";
 import type { ErrorCode, Violation } from "./violations.ts";
 
-export type VarType = "string" | "int" | "float" | "bool" | "duration" | "url" | "enum" | "list" | "json";
+export type VarType = "string" | "int" | "float" | "bool" | "duration" | "url" | "enum" | "list" | "keySet" | "json";
 
 /** A variable as the contract describes it. SDKs extend it with what their loader needs. */
 export interface VarBase {
@@ -13,6 +13,13 @@ export interface VarBase {
   contract: Record<string, unknown>;
   /** For list variables: the separator used to render the default. */
   separator?: string;
+  /**
+   * `int` values and int list items hold the full 64-bit range: a `number`
+   * within ±Number.MAX_SAFE_INTEGER, a `bigint` beyond it. Contract-first
+   * mode sets it; declared variables (a Zod or class-validator `number`) are
+   * limited to the safe range.
+   */
+  int64?: boolean;
 }
 
 export const ENV_NAME = /^[A-Z][A-Z0-9_]*$/;
@@ -93,8 +100,14 @@ export class VarReport {
 
   /** ` (got "value")` for non-secrets, to help fix the value; nothing for secrets. */
   got(value: unknown): string {
-    return this.decl.secret ? "" : ` (got ${JSON.stringify(value)})`;
+    return this.decl.secret ? "" : ` (got ${jsonText(value)})`;
   }
+}
+
+/** JSON.stringify that writes a bigint as its digits. */
+export function jsonText(value: unknown): string {
+  if (typeof value === "bigint") return value.toString();
+  return JSON.stringify(value, (_k, v: unknown) => (typeof v === "bigint" ? v.toString() : v));
 }
 
 const SAFE_LIMIT = Number.MAX_SAFE_INTEGER;
@@ -105,12 +118,14 @@ const EXPECTED: Partial<Record<VarType, string>> = {
   duration: "expected a Go duration such as 30s",
   url: "expected a URL such as scheme://host",
   list: "expected a list",
+  keySet: "expected a set of keys",
   json: "expected a JSON value",
 };
 
 function range(min: unknown, max: unknown, unit = ""): string | undefined {
-  const lo = typeof min === "number" && min > -SAFE_LIMIT ? min : typeof min === "string" ? min : undefined;
-  const hi = typeof max === "number" && max < SAFE_LIMIT ? max : typeof max === "string" ? max : undefined;
+  // A bigint bound (contract-first, beyond 2^53) is exact and shown as is.
+  const lo = (typeof min === "number" && min > -SAFE_LIMIT) || typeof min === "bigint" || typeof min === "string" ? min : undefined;
+  const hi = (typeof max === "number" && max < SAFE_LIMIT) || typeof max === "bigint" || typeof max === "string" ? max : undefined;
   if (lo !== undefined && hi !== undefined) return `must be between ${lo} and ${hi}${unit}`;
   if (lo !== undefined) return `must be at least ${lo}${unit}`;
   if (hi !== undefined) return `must be at most ${hi}${unit}`;
@@ -134,6 +149,7 @@ export function secretMessage(decl: Partial<Pick<VarBase, "type" | "contract">>,
     case "out_of_range":
       if (decl.type === "string") rule = range(c["minLength"], c["maxLength"], " characters long");
       else if (decl.type === "list") rule = range(c["itemMin"], c["itemMax"])?.replace(/^must/, "each item must");
+      else if (decl.type === "keySet") rule = (range(c["keyMinLength"] ?? 1, c["keyMaxLength"], " characters long") ?? "").replace(/^must/, "each key must");
       else rule = range(c["min"], c["max"]);
       break;
     case "pattern_mismatch":
@@ -146,10 +162,12 @@ export function secretMessage(decl: Partial<Pick<VarBase, "type" | "contract">>,
       if (Array.isArray(c["schemes"])) rule = `scheme must be one of ${c["schemes"].join(", ")}`;
       break;
     case "too_few_items":
-      if (typeof c["minItems"] === "number") rule = `must have at least ${c["minItems"]} items`;
+      if (decl.type === "keySet") rule = `must have at least ${typeof c["minKeys"] === "number" ? c["minKeys"] : 1} keys`;
+      else if (typeof c["minItems"] === "number") rule = `must have at least ${c["minItems"]} items`;
       break;
     case "too_many_items":
-      if (typeof c["maxItems"] === "number") rule = `must have at most ${c["maxItems"]} items`;
+      if (decl.type === "keySet") rule = `must have at most ${typeof c["maxKeys"] === "number" ? c["maxKeys"] : 2} keys`;
+      else if (typeof c["maxItems"] === "number") rule = `must have at most ${c["maxItems"]} items`;
       break;
     default:
       break;
@@ -162,7 +180,43 @@ export const INT_SYNTAX = /^[+-]?[0-9]+$/;
 const INT = INT_SYNTAX;
 const MAX_SAFE = Number.MAX_SAFE_INTEGER;
 const UNSAFE = `integers beyond ±${MAX_SAFE} are not exact in JavaScript`;
-const FLOAT = /^[+-]?(?:[0-9]+\.?[0-9]*|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/;
+const INT64_MIN = -(2n ** 63n);
+const INT64_MAX = 2n ** 63n - 1n;
+const BEYOND_INT64 = "is beyond the 64-bit integer range";
+
+/**
+ * A base-10 integer as an exact value: a `number` within
+ * ±Number.MAX_SAFE_INTEGER, a `bigint` beyond it, or undefined beyond the
+ * signed 64-bit range. `text` must match INT_SYNTAX.
+ */
+export function exactInt(text: string): number | bigint | undefined {
+  const n = Number(text);
+  if (Number.isSafeInteger(n)) return n;
+  const b = BigInt(text);
+  return b < INT64_MIN || b > INT64_MAX ? undefined : b;
+}
+
+/** An exact integer as a `number` when safe, else kept as a `bigint`. */
+export function narrowInt(n: number | bigint): number | bigint {
+  return typeof n === "bigint" && n >= -MAX_SAFE && n <= MAX_SAFE ? Number(n) : n;
+}
+
+/**
+ * JSON.parse that keeps every integer literal beyond ±Number.MAX_SAFE_INTEGER
+ * exact, as a `bigint` (other numbers are as JSON.parse reads them).
+ */
+export function parseJsonExact(text: string): unknown {
+  return JSON.parse(text, (_key, value: unknown, context?: { source?: string }) => {
+    if (typeof value === "number" && !Number.isSafeInteger(value) && context?.source !== undefined && /^-?[0-9]+$/.test(context.source)) {
+      return BigInt(context.source);
+    }
+    return value;
+  });
+}
+/** SPEC §5 float syntax: digits on both sides of an optional point, an optional exponent. */
+export const FLOAT_SYNTAX = /^[+-]?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
+/** SPEC §5 bool syntax: true or false, in any case. */
+export const BOOL_SYNTAX = /^(?:true|false)$/i;
 
 /**
  * SPEC §5: empty means unset for every type but string. Values are never
@@ -175,13 +229,23 @@ export function preprocess(decl: Pick<VarBase, "type">, raw: unknown): unknown {
 
 /**
  * The checks every SDK makes on a raw value before its host library sees
- * it: empty means unset, a secret must not hold an unresolved injector
- * reference, and numbers use strict base-10 syntax (host coercion accepts
- * " 42", "0x2A" and "1e3"). Returns the value to hand on, or `ok: false`
+ * it (SPEC §5): empty means unset, a secret must not hold an unresolved
+ * injector reference, numbers use strict decimal syntax (host coercion
+ * accepts " 42", "0x2A", "1e3", ".5" and "Infinity"), and a bool is `true`
+ * or `false` in any case (z.stringbool() also takes "1", "yes" and "on").
+ * Values are never trimmed. Returns the value to hand on, or `ok: false`
  * after reporting a violation.
  */
 export function precheckVar(decl: VarBase, raw: unknown, report: VarReport): { value: unknown; ok: boolean } {
   const value = preprocess(decl, raw);
+  if (Array.isArray(value) && decl.secret) {
+    // Indexed items: any one holding a reference means the injector did not run.
+    const scheme = value.map(injectorScheme).find((s) => s !== undefined);
+    if (scheme !== undefined) {
+      report.add("invalid_type", `holds an unresolved ${scheme} reference; the injector that should resolve it did not run`, true);
+      return { value: undefined, ok: false };
+    }
+  }
   if (typeof value !== "string") return { value, ok: true };
   if (decl.secret) {
     const scheme = injectorScheme(value);
@@ -196,13 +260,17 @@ export function precheckVar(decl: VarBase, raw: unknown, report: VarReport): { v
       report.add("invalid_type", `expected a base-10 integer${got}`);
       return { value: undefined, ok: false };
     }
-    if (!Number.isSafeInteger(Number(value))) {
-      report.add("out_of_range", `${UNSAFE}${got}`);
+    if (decl.int64 ? exactInt(value) === undefined : !Number.isSafeInteger(Number(value))) {
+      report.add("out_of_range", `${decl.int64 ? BEYOND_INT64 : UNSAFE}${got}`);
       return { value: undefined, ok: false };
     }
   }
-  if (decl.type === "float" && !FLOAT.test(value)) {
-    report.add("invalid_type", `expected a decimal number${got}`);
+  if (decl.type === "float" && (!FLOAT_SYNTAX.test(value) || !Number.isFinite(Number(value)))) {
+    report.add("invalid_type", `expected a finite decimal number${got}`);
+    return { value: undefined, ok: false };
+  }
+  if (decl.type === "bool" && !BOOL_SYNTAX.test(value)) {
+    report.add("invalid_type", `expected true or false${got}`);
     return { value: undefined, ok: false };
   }
   return { value, ok: true };
@@ -212,6 +280,7 @@ export function precheckVar(decl: VarBase, raw: unknown, report: VarReport): { v
 export function wireValue(decl: Pick<VarBase, "type" | "separator">, value: unknown): string {
   switch (decl.type) {
     case "list":
+    case "keySet":
       return (value as unknown[]).map(String).join(decl.separator ?? ",");
     case "json":
       return JSON.stringify(value);
@@ -228,6 +297,8 @@ export function contractDefault(type: VarType, v: unknown): unknown {
     case "enum":
       return typeof v === "string" ? v : undefined;
     case "int":
+      // A bigint from an int64 declaration is exact.
+      if (typeof v === "bigint") return narrowInt(v);
       return typeof v === "number" && Number.isSafeInteger(v) ? v : undefined;
     case "float":
       return typeof v === "number" && Number.isFinite(v) ? v : undefined;
@@ -237,34 +308,74 @@ export function contractDefault(type: VarType, v: unknown): unknown {
       return typeof v === "number" && v >= 0 ? formatDuration(v) : undefined;
     case "list":
       return Array.isArray(v) ? v : undefined;
+    case "keySet":
+      // Always secret: a key set never has a default.
+      return undefined;
     case "json":
       return v;
   }
 }
 
+/** The longest `deprecated.message`, in characters (SPEC §4.2). */
+export const MAX_DEPRECATED_MESSAGE = 500;
 
-/** An int list's item bounds (SPEC §4.3 itemMin, itemMax). */
+/**
+ * Problems with an input's `deprecated` (SPEC §4.2): `message` not blank and
+ * at most 500 characters, `replacedBy` an input name (`nameRe`), and the
+ * input not required, since the platform could not stop setting it.
+ */
+export function deprecatedProblems(deprecated: unknown, required: boolean, nameRe: RegExp = ENV_NAME): string[] {
+  if (deprecated === undefined) return [];
+  if (typeof deprecated !== "object" || deprecated === null || Array.isArray(deprecated)) return ["deprecated must be { message, replacedBy? }"];
+  const out: string[] = [];
+  const { message, replacedBy, ...rest } = deprecated as Record<string, unknown>;
+  for (const k of Object.keys(rest)) out.push(`deprecated: unknown field ${k}`);
+  if (typeof message !== "string" || message.trim() === "") out.push("deprecated.message must not be blank");
+  else if ([...message].length > MAX_DEPRECATED_MESSAGE) {
+    out.push(`deprecated.message is ${[...message].length} characters, more than ${MAX_DEPRECATED_MESSAGE}`);
+  }
+  if (replacedBy !== undefined && (typeof replacedBy !== "string" || !nameRe.test(replacedBy))) {
+    out.push(`deprecated.replacedBy must be an input name matching ${nameRe.source}`);
+  }
+  if (required) out.push("a required input cannot be deprecated: the platform could not stop setting it; make it optional first");
+  return out;
+}
+
+/** The boot warning for a deprecated input that is set (SPEC §11.2): its name and message, never its value. */
+export function deprecatedWarning(name: string, deprecated: { message: string; replacedBy?: string | undefined }): string {
+  const by = deprecated.replacedBy !== undefined && !deprecated.message.includes(deprecated.replacedBy) ? ` (replaced by ${deprecated.replacedBy})` : "";
+  return `${name} is deprecated: ${deprecated.message}${by}`;
+}
+
+
+/** An int list's item bounds (SPEC §4.3 itemMin, itemMax). A `bigint` bound (contract-first) compares exactly. */
 export interface ItemBounds {
-  itemMin?: number | undefined;
-  itemMax?: number | undefined;
+  itemMin?: number | bigint | undefined;
+  itemMax?: number | bigint | undefined;
 }
 
 /**
  * Checks one item of an int list: a string in strict base-10 syntax, or a
  * number (from a JSON list), that is a safe integer within the item bounds.
- * Returns the item, or the code and a message that never quotes it.
+ * With `int64` (contract-first), any signed 64-bit integer: a `bigint` item
+ * (from an exactly parsed JSON list) or a string beyond the safe range
+ * becomes a `bigint`. Returns the item, or the code and a message that never
+ * quotes it.
  */
-export function intItem(item: unknown, bounds: ItemBounds): { value: number } | { code: ErrorCode; message: string } {
-  let n: number;
+export function intItem(item: unknown, bounds: ItemBounds, int64 = false): { value: number | bigint } | { code: ErrorCode; message: string } {
+  let n: number | bigint | undefined;
   if (typeof item === "string") {
     if (!INT_SYNTAX.test(item)) return { code: "invalid_type", message: "expected a base-10 integer" };
-    n = Number(item);
+    n = int64 ? exactInt(item) : Number(item);
   } else if (typeof item === "number" && Number.isInteger(item)) {
     n = item;
+  } else if (int64 && typeof item === "bigint") {
+    n = item < INT64_MIN || item > INT64_MAX ? undefined : narrowInt(item);
   } else {
     return { code: "invalid_type", message: "expected an integer" };
   }
-  if (!Number.isSafeInteger(n)) return { code: "out_of_range", message: UNSAFE };
+  if (n === undefined) return { code: "out_of_range", message: BEYOND_INT64 };
+  if (typeof n === "number" && !Number.isSafeInteger(n)) return { code: "out_of_range", message: UNSAFE };
   if (bounds.itemMin !== undefined && n < bounds.itemMin) return { code: "out_of_range", message: `must be at least ${bounds.itemMin}` };
   if (bounds.itemMax !== undefined && n > bounds.itemMax) return { code: "out_of_range", message: `must be at most ${bounds.itemMax}` };
   return { value: n };

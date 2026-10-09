@@ -2,7 +2,7 @@
 // validates every variable at start (see instrumentation.ts); in the
 // browser, bundlers pick its browser build, which is T3 Env alone.
 import { z } from "zod";
-import { createEnv, duration, list, secret, url } from "@docuconf/t3";
+import { createEnv, duration, keySet, list, secret, url } from "@docuconf/t3";
 import { logLevel } from "@/schemas";
 
 export const env = createEnv({
@@ -16,17 +16,9 @@ export const env = createEnv({
     /**
      * Keys that verify the signature on incoming payment webhooks.
      *
-     * A webhook is accepted when it is signed with any key in the list, so the key can be rotated without turning webhooks away. To rotate:
-     *
-     *  1. add the new key as the second item, and roll out;
-     *  2. switch the sender to the new key;
-     *  3. remove the old key, and roll out.
-     *
-     * Each key is 32 to 256 characters, so an empty or truncated key fails at boot. Without this variable, the service rejects every webhook.
+     * A webhook is accepted when it is signed with any key in the set, so the key can be rotated without turning webhooks away. Each key is 32 to 256 characters, so an empty or truncated key fails at boot. Without this variable, the service rejects every webhook.
      */
-    WEBHOOK_KEYS: secret(list(z.string(), { minItems: 1, maxItems: 2, itemMinLength: 32, itemMaxLength: 256 }))
-      .optional()
-      .describe("Keys that verify the signature on incoming payment webhooks"),
+    WEBHOOK_KEYS: keySet({ keyMinLength: 32, keyMaxLength: 256 }).optional().describe("Keys that verify the signature on incoming payment webhooks"),
   },
   // Inlined into the browser bundle by `next build`: not runtime configuration.
   clientPrefix: "NEXT_PUBLIC_",

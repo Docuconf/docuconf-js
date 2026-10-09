@@ -15,7 +15,7 @@ const server = createServer((req, res) => {
     // REQUEST_TIMEOUT is in milliseconds. Secrets are never echoed, set or not.
     res.end(JSON.stringify({ PORT, LOG_LEVEL, DATABASE_URL: "***", ALLOWED_ORIGINS, REQUEST_TIMEOUT, WORKER_COUNT, WEBHOOK_KEYS: "***" }));
   } else if (req.method === "POST" && req.url === "/webhooks/payments") {
-    // Payment webhooks, signed with any key in WEBHOOK_KEYS (see env.ts for
+    // Payment webhooks, signed with any key in WEBHOOK_KEYS (CONFIG.md says
     // how to rotate it).
     const chunks: Buffer[] = [];
     let size = 0;

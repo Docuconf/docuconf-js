@@ -226,14 +226,17 @@ Every property with class-validator decorators or `@Describe` is a variable name
 | `url` | `@UrlSchemes("https", ...)`, or `@IsUrl({ protocols, require_tld: false })`; `@MaxLength` | `string` |
 | `enum` | `@IsEnum(StringEnum)` or `@IsIn([...])` | the enum |
 | `list` | `@List({ separator })` and items `@IsString({ each: true })` or `@IsInt({ each: true })`; int items bounded with `@Min`, `@Max`, `@IsPositive`, `@IsNegative` and `{ each: true }`, string items with `@MinLength`, `@MaxLength`, `@Length` and `{ each: true }`; `@ArrayMinSize`, `@ArrayMaxSize` | `string[]` or `number[]` |
+| `keySet` | `@KeySet({ separator, minKeys, maxKeys, keyMinLength, keyMaxLength })`, always secret | `KeySet` |
 | `json` | `@Json(SomeClass, { maxLength })`, validated with that class's decorators | `SomeClass` |
 
 - **Descriptions**: `@Describe("...")`, at least 5 characters, on every variable. **Details**, longer docs, come from the property's TSDoc comment or `@Details("...")`: see [Descriptions and details](#descriptions-and-details).
 - **Required** means no `@IsOptional()` and no default. **Defaults** are property initializers (`PORT: number = 3000`), exported and checked against the variable's own constraints; for durations, `@Duration({ default: "30s" })`, an initializer in the same syntax, or one in milliseconds.
 - **Secrets**: `@Secret()`. A secret cannot have a default or examples, and its value never appears in errors or when the config is printed.
-- **Docs metadata**: `@Examples("eu-west-1")`, `@Group("logging")`, `@Deprecated({ message, replacedBy })`. Setting a deprecated variable logs a warning.
-- **Values are parsed by docuconf, not class-transformer.** Env strings become the contract type (strict base-10 integers; `true`/`false` in any case, so `"false"` is never `true`; Go durations; lists split on the separator) before class-validator checks the instance. `@Type` and `@Transform` on variables are not applied; on `@Json` and config-file classes, `@Type` is how nested classes are found.
-- **Empty strings** count as unset for every type except `string`. Values are never trimmed, except around list separators (`a, b` is `["a", "b"]`).
+- **Docs metadata**: `@Examples("eu-west-1")`, `@Group("logging")`, `@Deprecated({ message, replacedBy })`.
+- **Deprecated** inputs (`@Deprecated`, on variables and file inputs) still load and are still checked; when one is set, boot logs a warning with its name and message, never its value. The message must not be blank and is at most 500 characters, and a required input cannot be deprecated (the platform could not stop setting it), so either is a declaration error.
+- **Values are parsed by docuconf, not class-transformer.** Env strings become the contract type before class-validator checks the instance. `@Type` and `@Transform` on variables are not applied; on `@Json` and config-file classes, `@Type` is how nested classes are found.
+- **Parsing is strict** (SPEC §5): values are never trimmed, list items included (`a, b` is `a` and ` b`, and `a,,b` has an empty middle item); a `bool` is `true` or `false` in any case, and nothing else (`1`, `yes` and `on` are `invalid_type`); an `int` is decimal digits with an optional sign (`+5` and `007` are fine; `0x10`, `1_000`, `1e3` and `5.0` are not); a `float` has digits on both sides of an optional point and an optional exponent (`.5`, `5.`, `inf` and `1e400` are rejected); a duration follows Go's grammar, sign included (`-5s`, `1.5h`, but not `5`, `5S` or `1d`).
+- **Empty strings** count as unset for every type except `string`.
 - **Lists** need an item type: `@List()` without `@IsString({ each: true })` or `@IsInt({ each: true })` is an error, since `emitDecoratorMetadata` cannot see it. Every bad item is reported. Int items are exported with `itemMin`/`itemMax` from `@Min(0, { each: true })` and friends, capped at ±`Number.MAX_SAFE_INTEGER` as for `int` variables; an item outside them is `out_of_range`.
 - **Length limits** for fixed-width fields: `@MaxLength(n)` on a `url` is exported as `maxLength`, `@Json(SomeClass, { maxLength })` bounds a `json` value as received (whitespace included, before parsing), and `@MinLength(n, { each: true })`/`@MaxLength(n, { each: true })` (or `@Length(min, max, { each: true })`) on a string list become `itemMinLength`/`itemMaxLength`, checked on each item after splitting. They count characters (Unicode code points): `日本` is 2, an emoji is 1. A value outside them is `out_of_range`; a secret's error gives its length, never its value. Item lengths on an int list, or a minimum above the maximum, are declaration errors.
 - **Patterns** (`@Matches`) are RE2 and match anywhere in the value; anchor with `^...$`. Lookaround, backreferences and flags other than `g`/`u` are rejected.
@@ -247,6 +250,37 @@ Every property with class-validator decorators or `@Describe` is a variable name
 Problems with the declaration itself (bad names, short descriptions, non-RE2 patterns, a default that breaks its own constraints, file mount clashes) throw `DocuconfDeclarationError` when `docuconfValidate` is called, in both boot and export mode. With `exitOnError`, they print and exit 1 too.
 
 The object `validate` returns is an instance of your class, like the one in the NestJS docs: typed values, plus the variables the class does not declare. Nest copies its string, number and boolean values to `process.env`; durations (milliseconds are not a Go duration) and file inputs are kept out of that copy.
+
+### Key sets
+
+A `keySet` (SPEC §4.3) is a set of secret keys that are all valid at once, so one can be rotated without an outage: the
+keys that verify webhook signatures, inbound API keys, JWT HMAC keys. The platform supplies it as one Secret value,
+`old,new` while rotating. It is always secret, holds 1 to 2 keys unless `minKeys` and `maxKeys` say otherwise, and an
+empty key (a stray comma) or one outside `keyMinLength`..`keyMaxLength` fails at boot (`out_of_range`) without
+printing any key. The property is a `KeySet`: `keys()` in the platform's order, a constant-time `contains(candidate)`
+for an API key a caller presents, and `verify(check)`, which runs your check (an HMAC comparison) with every key,
+without stopping at the first match. It prints as `[redacted]`.
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { Describe, KeySet } from "@docuconf/nestjs";
+
+export class WebhookConfig {
+  @KeySet({ keyMinLength: 32, keyMaxLength: 256 })
+  @Describe("Keys that verify webhook signatures")
+  WEBHOOK_KEYS!: KeySet;
+}
+
+/** Whether `signature` is the HMAC-SHA256 of `body` under any key in the set. */
+export function signedByUs(keys: KeySet, body: Buffer, signature: Buffer): boolean {
+  return keys.verify((key) => {
+    const want = createHmac("sha256", key).update(body).digest();
+    return want.length === signature.length && timingSafeEqual(want, signature);
+  });
+}
+```
+
+`docuconf docs` prints the rotation steps for every key set, so its details need not repeat them.
 
 ### Descriptions and details
 
@@ -319,7 +353,7 @@ export class FileInputs {
 
 | Decorator | Contract type | Property |
 |---|---|---|
-| `@ConfigFile({ format: "json" \| "yaml", schema })` | `config`; `schema` is a class-validator class (or a Zod schema), and its JSON Schema goes into the contract | the validated instance |
+| `@ConfigFile({ format: "json" \| "yaml" \| "toml", schema })` | `config`; `schema` is a class-validator class (or a Zod schema), and its JSON Schema goes into the contract | the validated instance |
 | `@TlsFile({ dnsNames, keyAlgorithms, minRemaining, requireCA })` | `tls` (a `kubernetes.io/tls` directory) | `TlsMaterial`: `{ cert, key, ca }`, `certificate`, `getSecureContext()`, `attach(server)`, `onChange()` |
 | `@CaBundleFile({ minCertificates })` | `caBundle` | `CaBundle`: `{ ca }` PEM, plus `certificates` |
 | `@KeystoreFile({ format: "pkcs12", passwordVar })` | `keystore` | `Keystore`: `{ pfx, passphrase }` |
@@ -328,7 +362,7 @@ export class FileInputs {
 
 Every file decorator takes `path`, `description`, `required`, `pathEnv`, `reload: "restart" | "watch"`, `maxSize`, `group`, `deprecated`, and `name`: the input name in the contract, by default the property name in kebab case (`servingTls` is `serving-tls`). Optional inputs that are absent are `undefined`.
 
-Checks at boot (SPEC §11.2 item 7): the file exists, is readable and within `maxSize`; config files parse (a BOM is accepted) and validate against their class, with the failing path in the message (a missing field says `required`); TLS key pairs parse and match, are valid now with at least `minRemaining` left, cover every `dnsNames` entry, use an allowed key algorithm and, with `requireCA`, chain to `ca.crt` (using `node:crypto`); CA bundles hold at least `minCertificates` certificates; PKCS#12 keystores open with the password in `passwordVar` (JKS: magic number only); text files match their constraints.
+Checks at boot (SPEC §11.2 item 7): the file exists, is readable and within `maxSize`; config files parse (a BOM is accepted) and validate against their class, with the failing path in the message (a missing field says `required`); TLS key pairs parse and match, are valid now with at least `minRemaining` left, cover every `dnsNames` entry, use an allowed key algorithm and, with `requireCA`, chain to `ca.crt` (using `node:crypto`); CA bundles hold at least `minCertificates` certificates; PKCS#12 keystores open with the password in `passwordVar`, an empty password when that variable is unset (JKS: magic number only); text files match their constraints.
 
 `reload: "watch"` inputs are re-read when their mount directory changes (Kubernetes swaps a `..data` symlink). A reload that fails its checks is logged and the previous value kept. File properties are getters, so `ConfigService.get("settings")` returns the current value (unless you turned on `ConfigModule`'s `cache`). To react to a change:
 

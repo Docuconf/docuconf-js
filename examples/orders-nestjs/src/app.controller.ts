@@ -26,8 +26,8 @@ export class AppController {
     };
   }
 
-  // Payment webhooks, signed with any key in WEBHOOK_KEYS (see
-  // orders.config.ts for how to rotate it). main.ts keeps the raw body.
+  // Payment webhooks, signed with any key in WEBHOOK_KEYS (CONFIG.md says
+  // how to rotate it). main.ts keeps the raw body.
   @Post("webhooks/payments")
   @HttpCode(204)
   payment(@Req() req: RawBodyRequest<object>, @Headers("x-signature") signature?: string): void {

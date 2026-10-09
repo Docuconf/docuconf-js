@@ -6,7 +6,10 @@ import {
   cleanPattern,
   detailsProblem,
   contractDefault,
+  deprecatedProblems,
   intBounds,
+  narrowInt,
+  keySetContract,
   nextFloat,
   nonRe2Feature,
   wireValue,
@@ -71,7 +74,8 @@ export function describeVar(
   }
   const outJs = jsonSchemaOf(schema, "output");
   const meta = inJs[TYPE_KEY] as DocuconfTypeMeta | undefined;
-  const isSecret = inJs[SECRET_KEY] === true || secretSchemas.has(schema);
+  // A key set is always secret (SPEC §4.3).
+  const isSecret = inJs[SECRET_KEY] === true || secretSchemas.has(schema) || meta?.type === "keySet";
   const ann = (inJs[ANNOTATIONS_KEY] as Annotations | undefined) ?? annotatedSchemas.get(schema);
   const description = typeof inJs["description"] === "string" ? inJs["description"] : (outJs?.["description"] as string | undefined);
 
@@ -108,13 +112,13 @@ export function describeVar(
     else c["examples"] = examples;
   }
   if (ann?.deprecated !== undefined) {
-    if (ann.deprecated.replacedBy !== undefined && !ENV_NAME.test(ann.deprecated.replacedBy)) {
-      problems.push(`${name}: deprecated.replacedBy must be a variable name`);
-    }
+    for (const m of deprecatedProblems(ann.deprecated, required)) problems.push(`${name}: ${m}`);
     c["deprecated"] = ann.deprecated;
   }
 
   const decl: VarDecl = { name, schema, type, secret: isSecret, required, contract: c };
+  // int64(): the full 64-bit range, a bigint beyond 2^53 (SPEC §5).
+  if (meta?.type === "int" && meta.int64) decl.int64 = true;
 
   // Environment values are strings: z.number() (without coerce) rejects
   // every one of them, so the variable could never be set.
@@ -137,6 +141,11 @@ export function describeVar(
       break;
     }
     case "int": {
+      if (meta?.type === "int") {
+        if (meta.min !== undefined) c["min"] = narrowInt(BigInt(meta.min));
+        if (meta.max !== undefined) c["max"] = narrowInt(BigInt(meta.max));
+        break;
+      }
       const js = outJs?.["type"] === "integer" ? outJs : inJs;
       const { min, max } = intBounds(
         name,
@@ -212,6 +221,12 @@ export function describeVar(
       }
       if (m.itemMinLength !== undefined) c["itemMinLength"] = m.itemMinLength;
       if (m.itemMaxLength !== undefined) c["itemMaxLength"] = m.itemMaxLength;
+      decl.separator = m.separator;
+      break;
+    }
+    case "keySet": {
+      const m = meta as Extract<DocuconfTypeMeta, { type: "keySet" }>;
+      Object.assign(c, keySetContract(m, m.encoding, m.separator));
       decl.separator = m.separator;
       break;
     }
@@ -297,5 +312,5 @@ function unsupportedHint(schema: StandardSchemaV1, inJs: JsonSchema): string {
   if (kind === "object" || kind === "array" || inJs["type"] === "object" || inJs["type"] === "array") {
     return "objects and arrays come in one variable as JSON or a list: use json(schema) or list(item)";
   }
-  return "unsupported schema; use z.string(), z.coerce.number(), z.stringbool(), z.enum([...]), url(), duration(), list() or json()";
+  return "unsupported schema; use z.string(), z.coerce.number(), z.stringbool(), z.enum([...]), url(), duration(), list(), keySet(), int64() or json()";
 }

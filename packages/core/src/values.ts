@@ -4,7 +4,8 @@
  * these checks, so the conformance suite tests the code apps run.
  */
 import { DURATION_EXAMPLE, type DurationEncoding, formatDuration, parseDurationAs } from "./duration.ts";
-import { type ItemBounds, type VarBase, type VarReport, intItem } from "./vars.ts";
+import { KeySet, type KeySetBounds, keySetProblems } from "./keyset.ts";
+import { type ItemBounds, type VarBase, type VarReport, exactInt, intItem, parseJsonExact } from "./vars.ts";
 import type { ErrorCode } from "./violations.ts";
 
 /** How a list is written in the environment (SPEC §5). */
@@ -13,7 +14,7 @@ export type ListEncoding = "csv" | "json" | "indexed";
 export const LIST_ENCODINGS: readonly ListEncoding[] = ["csv", "json", "indexed"];
 
 /** What convertValue needs to know about a variable, beyond VarBase. */
-export interface ValueDecl extends VarBase, ItemBounds {
+export interface ValueDecl extends VarBase, ItemBounds, KeySetBounds {
   /** Duration bounds, in milliseconds. */
   durationMin?: number | undefined;
   durationMax?: number | undefined;
@@ -23,7 +24,7 @@ export interface ValueDecl extends VarBase, ItemBounds {
   schemes?: readonly string[] | undefined;
   /** List item type. Default `string`. */
   items?: "string" | "int" | undefined;
-  /** List encoding. Default `csv`. */
+  /** List or key set encoding. Default `csv`. */
   listEncoding?: ListEncoding | undefined;
   /**
    * For `url` and `json`: the longest accepted value, in characters (code
@@ -114,8 +115,9 @@ export function durationProblem(ms: number, min: number | undefined, max: number
 /**
  * Turns one raw value, after precheckVar, into the variable's type: strict
  * numbers, `true`/`false` in any case, durations in their encoding, URL
- * shape and scheme, lists in their encoding with int items checked, JSON.
- * An `indexed` list arrives as its items (`NAME__0`, `NAME__1`, ...).
+ * shape and scheme, lists and key sets in their encoding with items
+ * checked, JSON. An `indexed` list or key set arrives as its items
+ * (`NAME__0`, `NAME__1`, ...); a key set becomes a KeySet.
  * Reports a problem and returns `ok: false` when the value does not fit.
  * maxLength on a url or json value and item lengths on a string list are
  * checked here; a string's lengths and pattern, numeric bounds and item
@@ -133,6 +135,7 @@ export function convertValue(
     return { value: undefined, ok: false };
   };
   if (typeof raw !== "string") {
+    if (decl.type === "keySet") return keyItems(decl, [...raw], report);
     if (decl.type !== "list") return fail({ code: "invalid_type", message: "expected a single value" }, undefined);
     return listItems(decl, [...raw], report);
   }
@@ -142,7 +145,8 @@ export function convertValue(
     case "enum":
       return { value, ok: true };
     case "int":
-      return { value: Number(value), ok: true };
+      // precheckVar has checked the syntax and range; with int64, a bigint beyond 2^53.
+      return { value: decl.int64 ? exactInt(value) : Number(value), ok: true };
     case "float": {
       const n = Number(value);
       return Number.isFinite(n) ? { value: n, ok: true } : fail({ code: "invalid_type", message: "expected a finite number" });
@@ -155,8 +159,9 @@ export function convertValue(
     }
     case "duration": {
       const encoding = decl.durationEncoding ?? "go";
+      // Only the go encoding takes a sign (SPEC §5).
       const ms = parseDurationAs(value, encoding);
-      if (ms === undefined || ms < 0) return fail({ code: "invalid_type", message: `expected ${DURATION_EXAMPLE[encoding]}` });
+      if (ms === undefined) return fail({ code: "invalid_type", message: `expected ${DURATION_EXAMPLE[encoding]}` });
       const p = durationProblem(ms, decl.durationMin, decl.durationMax);
       return p ? fail(p) : { value: ms, ok: true };
     }
@@ -172,13 +177,29 @@ export function convertValue(
       if (encoding === "csv") return listItems(decl, splitCsv(value, decl.separator), report);
       let parsed: unknown;
       try {
-        parsed = JSON.parse(value);
+        // With int64, items beyond 2^53 parse exactly, as bigints.
+        parsed = decl.int64 && decl.items === "int" ? parseJsonExact(value) : JSON.parse(value);
       } catch {
         return fail({ code: "invalid_type", message: "expected a JSON array" });
       }
       if (!Array.isArray(parsed)) return fail({ code: "invalid_type", message: "expected a JSON array" });
       // A JSON list holds typed items: [1, 2], not ["1", "2"].
       return listItems(decl, parsed, report, true);
+    }
+    case "keySet": {
+      const encoding = decl.listEncoding ?? "csv";
+      if (encoding === "indexed") return keyItems(decl, [value], report);
+      if (encoding === "csv") return keyItems(decl, splitCsv(value, decl.separator), report);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(value);
+      } catch {
+        return fail({ code: "invalid_type", message: "expected a JSON array of strings" }, undefined, true);
+      }
+      if (!Array.isArray(parsed) || !parsed.every((k) => typeof k === "string")) {
+        return fail({ code: "invalid_type", message: "expected a JSON array of strings" }, undefined, true);
+      }
+      return keyItems(decl, parsed, report);
     }
     case "json": {
       // Measured as received, whitespace included, before parsing (SPEC §4.3).
@@ -202,12 +223,19 @@ export function convertValue(
 }
 
 /**
- * Splits a `csv` list. Whitespace around separators is dropped
- * (`"a.com, b.com"` is two clean items), as SPEC §5 allows: the platform
- * never renders it, but people writing env files do.
+ * Splits a `csv` list on every occurrence of `separator`. Items are never
+ * trimmed (SPEC §5): `"a, b"` is `a` and ` b`, and `"a,,b"` has an empty
+ * middle item.
  */
 export function splitCsv(value: string, separator = ","): string[] {
-  return value.split(separator).map((item) => (separator.trim() === "" ? item : item.trim()));
+  return value.split(separator);
+}
+
+/** A key set's keys, checked: every problem is reported, by position and length, never quoting a key. */
+function keyItems(decl: ValueDecl, keys: readonly string[], report: VarReport): { value: unknown; ok: boolean } {
+  const problems = keySetProblems(keys, decl);
+  for (const p of problems) report.add(p.code, p.message, true);
+  return problems.length > 0 ? { value: undefined, ok: false } : { value: new KeySet(keys), ok: true };
 }
 
 /**
@@ -233,9 +261,10 @@ function listItems(decl: ValueDecl, items: readonly unknown[], report: VarReport
     }
     return ok ? { value: [...items], ok: true } : { value: undefined, ok: false };
   }
-  const out: number[] = [];
+  const out: Array<number | bigint> = [];
   for (const [i, item] of items.entries()) {
-    const r = typed && typeof item !== "number" ? { code: "invalid_type" as const, message: "expected an integer" } : intItem(item, decl);
+    const numeric = typeof item === "number" || (decl.int64 === true && typeof item === "bigint");
+    const r = typed && !numeric ? { code: "invalid_type" as const, message: "expected an integer" } : intItem(item, decl, decl.int64);
     if ("code" in r) {
       report.add(r.code, `item ${i + 1}: ${r.message}${report.got(item)}`);
       ok = false;

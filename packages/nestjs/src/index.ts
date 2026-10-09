@@ -9,6 +9,7 @@ export {
   Examples,
   Group,
   Json,
+  KeySet,
   KeystoreFile,
   List,
   Secret,
@@ -19,6 +20,7 @@ export {
   type FileNameOption,
   type JsonOptions,
   type JsonSchemaSource,
+  type KeySetOptions,
   type ListOptions,
 } from "./decorators.ts";
 export { docuconfValidate, type CheckOptions, type CheckResult, type DocuconfValidate, type DocuconfValidateOptions } from "./validate.ts";

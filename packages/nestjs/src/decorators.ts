@@ -3,6 +3,8 @@ import {
   type CaBundleFileOptions,
   type ConfigFileOptions,
   type FileInput,
+  type KeySet as CoreKeySet,
+  type KeySetBounds,
   type KeystoreFileOptions,
   type TextFileOptions,
   type TlsFileOptions,
@@ -26,6 +28,7 @@ export interface PropertyMeta {
   schemes?: string[];
   duration?: DurationOptions;
   list?: ListOptions;
+  keySet?: KeySetOptions;
   /** A class (or nothing) the JSON value binds to, and the value's length limit. */
   json?: { schema: JsonSchemaSource | undefined; options?: JsonOptions };
   examples?: string[];
@@ -141,6 +144,34 @@ export function List(options: ListOptions = {}): Decorator {
   return (t, p) => update(t, p, (m) => void (m.list = options));
 }
 
+export interface KeySetOptions extends KeySetBounds {
+  /** Separator between keys. Default ",". */
+  separator?: string;
+}
+
+/** The value of a `@KeySet()` property: the keys, `contains(candidate)` and `verify(check)`. */
+export type KeySet = CoreKeySet;
+
+/**
+ * A key set (SPEC §4.3): secret keys that are all valid at once, so one can
+ * be rotated without an outage, such as the keys that verify webhook
+ * signatures. Always secret. The platform supplies it as one Secret value,
+ * `old,new` while rotating. `minKeys` defaults to 1 and `maxKeys` to 2;
+ * `keyMinLength` and `keyMaxLength` bound each key, in characters. Keys are
+ * never trimmed, and an empty key (a stray separator) always fails. The
+ * property is a `KeySet`:
+ *
+ * ```ts
+ * @KeySet({ keyMinLength: 32, keyMaxLength: 256 })
+ * @IsOptional()
+ * @Describe("Keys that verify webhook signatures")
+ * WEBHOOK_KEYS?: KeySet;
+ * ```
+ */
+export function KeySet(options: KeySetOptions = {}): Decorator {
+  return (t, p) => update(t, p, (m) => void (m.keySet = options));
+}
+
 export interface JsonOptions {
   /** Longest accepted value as received, in characters (code points), whitespace included. */
   maxLength?: number;
@@ -187,7 +218,7 @@ function split<T extends FileNameOption>(options: T): [string | undefined, Omit<
 }
 
 /**
- * A structured config file (`json` or `yaml`), validated at boot against
+ * A structured config file (`json`, `yaml` or `toml`), validated at boot against
  * `schema`: a class-validator class (nested classes need `@ValidateNested()`
  * and class-transformer's `@Type()`), or a Zod schema.
  */

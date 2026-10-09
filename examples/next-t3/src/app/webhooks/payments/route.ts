@@ -1,5 +1,5 @@
 // POST /webhooks/payments: payment webhooks, signed with any key in
-// WEBHOOK_KEYS (see env.ts for how to rotate it). A route handler runs at
+// WEBHOOK_KEYS (CONFIG.md says how to rotate it). A route handler runs at
 // request time, so it sees the keys the server started with.
 import { env } from "@/env";
 import { verify } from "@/webhook";

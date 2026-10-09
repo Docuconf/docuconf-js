@@ -14,6 +14,7 @@ import {
   type Violation,
   DocuconfDeclarationError,
   callerFile,
+  deprecatedWarning,
   exitWith,
   exportSession,
   failBoot,
@@ -181,8 +182,9 @@ function check(decl: Declaration, others: Record<string, StandardSchemaV1>, raw:
     if (env[name] === "" && d.type !== "string") delete env[name];
     values[name] = r.value;
     violations.push(...r.violations);
-    const dep = d.contract["deprecated"] as { message: string } | undefined;
-    if (dep && env[name] !== undefined) warnings.push(`${name} is deprecated: ${dep.message}`);
+    const dep = d.contract["deprecated"] as { message: string; replacedBy?: string } | undefined;
+    // Names the variable and the message, never the value.
+    if (dep && env[name] !== undefined) warnings.push(deprecatedWarning(name, dep));
   }
   for (const [name, schema] of Object.entries(others)) {
     if (!schema || decl.vars.has(name)) continue;
@@ -194,6 +196,10 @@ function check(decl: Declaration, others: Record<string, StandardSchemaV1>, raw:
   const ctx: LoadContext = { env, values, root, adapter: standardSchemaAdapter };
   const files = new FileState(decl.files, ctx);
   violations.push(...files.loadAll());
+  for (const [name, input] of Object.entries(decl.files)) {
+    const dep = input.options.deprecated;
+    if (dep && files.get(name) !== undefined) warnings.push(deprecatedWarning(name, dep));
+  }
   return { env, values, files, violations, warnings };
 }
 

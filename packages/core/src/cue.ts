@@ -22,6 +22,8 @@ function scalar(v: unknown): string {
     return Object.is(v, -0) ? "0" : JSON.stringify(v);
   }
   if (typeof v === "boolean" || v === null) return String(v);
+  // An exact integer beyond 2^53, such as an int64 bound.
+  if (typeof v === "bigint") return v.toString();
   throw new TypeError(`cannot write ${typeof v} in CUE`);
 }
 

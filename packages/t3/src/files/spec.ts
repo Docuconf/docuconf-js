@@ -25,7 +25,7 @@ export {
 } from "@docuconf/core/pure";
 export type { ConfigFileOptions };
 
-/** A structured config file (`json` or `yaml`) validated against `schema` at boot. */
+/** A structured config file (`json`, `yaml` or `toml`) validated against `schema` at boot. */
 export function configFile<S extends StandardSchemaV1, const R extends boolean = false>(
   options: ConfigFileOptions<S, R>,
 ): FileInput<StandardSchemaV1.InferOutput<S>, R> {

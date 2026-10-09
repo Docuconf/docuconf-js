@@ -1,7 +1,6 @@
 import {
   CONTRACT_DURATION,
   DocuconfDeclarationError,
-  ENV_NAME,
   type FileInput,
   type ValueDecl,
   type VarType,
@@ -9,7 +8,10 @@ import {
   checkVarName,
   closeSchema,
   contractDefault,
+  deprecatedProblems,
   describeFiles,
+  keySetContract,
+  keySetDeclProblems,
   detailsProblem,
   intBounds,
   itemLengthDeclProblems,
@@ -86,6 +88,7 @@ export function kebab(property: string): string {
 }
 
 function detectType(cs: Constraint[], doc: PropertyMeta, design: unknown): VarType | undefined {
+  if (doc.keySet) return "keySet";
   if (doc.duration) return "duration";
   if (doc.list) return "list";
   if (doc.json) return "json";
@@ -142,12 +145,13 @@ function describeVar(
       `${name}: @IsUrl() rejects hosts without a top-level domain, such as localhost or db, and the contract cannot express that, so the platform would accept values the app rejects. Use @UrlSchemes("https", ...) or @IsUrl({ require_tld: false })`,
     );
   }
-  if ((type === "duration" || type === "list" || type === "json") && has(cs, "isString")) {
+  if ((type === "duration" || type === "list" || type === "keySet" || type === "json") && has(cs, "isString")) {
     p(`a ${type} property holds the parsed value, not the string; remove @IsString()`);
   }
   if (!validDescription(doc.description)) p('needs a description of at least 5 characters (@Describe("..."))');
 
-  const secret = doc.secret === true;
+  // A key set is always secret (SPEC §4.3).
+  const secret = doc.secret === true || type === "keySet";
   const c: Record<string, unknown> = { type, description: doc.description ?? "" };
   if (doc.details !== undefined) {
     const bad = detailsProblem(doc.details);
@@ -175,7 +179,7 @@ function describeVar(
     else c["examples"] = doc.examples;
   }
   if (doc.deprecated !== undefined) {
-    if (doc.deprecated.replacedBy !== undefined && !ENV_NAME.test(doc.deprecated.replacedBy)) p("deprecated.replacedBy must be a variable name");
+    for (const m of deprecatedProblems(doc.deprecated, required)) p(`@Deprecated: ${m}`);
     c["deprecated"] = doc.deprecated;
     decl.deprecated = doc.deprecated;
   }
@@ -310,6 +314,15 @@ function describeVar(
         if (itemMinLength !== undefined) c["itemMinLength"] = decl.itemMinLength = itemMinLength;
         if (itemMaxLength !== undefined) c["itemMaxLength"] = decl.itemMaxLength = itemMaxLength;
       }
+      break;
+    }
+    case "keySet": {
+      const o = doc.keySet ?? {};
+      const separator = o.separator ?? ",";
+      if (separator === "") p("@KeySet separator must not be empty");
+      for (const m of keySetDeclProblems(o)) p(`@KeySet ${m}`);
+      Object.assign(c, keySetContract(o, "csv", separator));
+      Object.assign(decl, { listEncoding: "csv", separator, minKeys: o.minKeys, maxKeys: o.maxKeys, keyMinLength: o.keyMinLength, keyMaxLength: o.keyMaxLength });
       break;
     }
     case "json": {

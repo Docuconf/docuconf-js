@@ -288,11 +288,14 @@ describe("lists", () => {
       ...quiet,
     });
 
-  it("drop whitespace around separators and report each bad item, quoting the item", () => {
-    const e = failure(() => listEnv("https://a.com, https://b.com"));
-    expect(e.violations.map((v) => `${v.input} [${v.code}]: ${v.message}`)).toEqual(['PORTS [invalid_type]: item 3: expected a base-10 integer (got "x")']);
+  it("never trim items (SPEC §5) and report each bad item, quoting the item", () => {
+    const e = failure(() => listEnv("https://a.com,https://b.com"));
+    expect(e.violations.map((v) => `${v.input} [${v.code}]: ${v.message}`)).toEqual([
+      'PORTS [invalid_type]: item 2: expected a base-10 integer (got " 0")',
+      'PORTS [invalid_type]: item 3: expected a base-10 integer (got " x")',
+    ]);
     const ok = createEnv({ server: { ORIGINS: list(z.string()).describe("CORS origins") }, runtimeEnv: { ORIGINS: "https://a.com, https://b.com" }, ...quiet });
-    expect(ok.ORIGINS).toEqual(["https://a.com", "https://b.com"]);
+    expect(ok.ORIGINS).toEqual(["https://a.com", " https://b.com"]);
   });
 });
 

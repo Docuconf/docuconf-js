@@ -42,6 +42,8 @@ jobs:
           go-version: stable
           cache: false
       - run: go install cuelang.org/go/cmd/cue@v0.17.1
+      # For the shared export check (docuconf conformance export) in npm test.
+      - run: (cd docuconf-go/cmd/docuconf && go build -o "$RUNNER_TEMP/docuconf" .)
 
       - name: Pick the package from the tag
         id: pkg
@@ -86,6 +88,7 @@ jobs:
           # The shared conformance suite (SPEC §12), run by @docuconf/core's tests.
           DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
           DOCUCONF_REQUIRE_CONFORMANCE: "1"
+          DOCUCONF_CLI: ${{ runner.temp }}/docuconf
       - run: npm run build
       - run: npm run smoke
 
@@ -120,6 +123,8 @@ jobs:
           go-version: stable
           cache: false
       - run: go install cuelang.org/go/cmd/cue@v0.17.1
+      # For the shared export check (docuconf conformance export) in npm test.
+      - run: (cd docuconf-go/cmd/docuconf && go build -o "$RUNNER_TEMP/docuconf" .)
 
       - name: Pick the package from the tag
         id: pkg
@@ -152,6 +157,7 @@ jobs:
           DOCUCONF_REQUIRE_VET: "1"
           DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
           DOCUCONF_REQUIRE_CONFORMANCE: "1"
+          DOCUCONF_CLI: ${{ runner.temp }}/docuconf
       - run: npm run build
       - run: npm run smoke
 
