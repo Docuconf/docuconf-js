@@ -8,8 +8,11 @@
 #    NEXT_PUBLIC_ variable Next.js inlines), including the "use client"
 #    component that imports env.ts;
 #  - `next start` with valid env serves values read at start, not at build;
-#  - `next start` with a missing secret and a bad value exits 1, printing
-#    only the docuconf problems, instead of serving 500s.
+#  - mid-rotation, POST /webhooks/payments accepts a body signed with the
+#    old or the new webhook key, and rejects any other key or none;
+#  - `next start` with a missing secret, a bad value and an empty webhook
+#    key exits 1, printing only the docuconf problems and no key, instead of
+#    serving 500s.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
@@ -42,7 +45,10 @@ echo "smoke: ok: next build needs no server configuration"
 
 port="$(node -e 'const s = require("node:net").createServer().listen(0, () => { console.log(s.address().port); s.close(); })')"
 secret="s3cret-$RANDOM$RANDOM"
-"${clean[@]}" DATABASE_URL="postgres://orders:$secret@db:5432/orders" WORKER_COUNT=9 \
+# Two webhook keys: the old one and, mid-rotation, the new one.
+old_key="old-webhook-key-0123456789abcdef0123"
+new_key="new-webhook-key-0123456789abcdef0123"
+"${clean[@]}" DATABASE_URL="postgres://orders:$secret@db:5432/orders" WORKER_COUNT=9 WEBHOOK_KEYS="$old_key,$new_key" \
   "${next[@]}" start -p "$port" >"$work/out.txt" 2>&1 &
 pid=$!
 page=""
@@ -53,16 +59,32 @@ for _ in $(seq 1 200); do
 done
 case "$page" in *'&quot;WORKER_COUNT&quot;:9'*|*'"WORKER_COUNT":9'*) ;; *) fail "the page does not show WORKER_COUNT=9 from the runtime environment: $page" ;; esac
 case "$page" in *'https://api.example.com'*) ;; *) fail "the client component did not render NEXT_PUBLIC_API_BASE" ;; esac
-case "$page" in *"$secret"*) fail "the page contains the secret" ;; esac
-kill "$pid"; wait "$pid" 2>/dev/null || true; pid=""
+case "$page" in *"$secret"*|*webhook-key*) fail "the page contains a secret" ;; esac
+case "$page" in *'&quot;WEBHOOK_KEYS&quot;:&quot;***&quot;'*|*'"WEBHOOK_KEYS":"***"'*) ;; *) fail "the page does not redact WEBHOOK_KEYS" ;; esac
 echo "smoke: ok: next start serves values read at start, and the client component"
+
+body='{"order":"42","status":"paid"}'
+post() { curl -s -o /dev/null -w '%{http_code}' -X POST "$@" -d "$body" "http://127.0.0.1:$port/webhooks/payments"; }
+code="$(post)"
+[ "$code" = 401 ] || fail "an unsigned webhook got $code, want 401"
+for key in "$old_key" "$new_key" "other-webhook-key-0123456789abcdef"; do
+  sig="$(node -e 'process.stdout.write(require("node:crypto").createHmac("sha256", process.argv[1]).update(process.argv[2]).digest("hex"))' "$key" "$body")"
+  want=204; [ "${key#other}" != "$key" ] && want=401
+  code="$(post -H "X-Signature: $sig")"
+  [ "$code" = "$want" ] || fail "webhook signed with the ${key%%-*} key: got $code, want $want"
+done
+kill "$pid"; wait "$pid" 2>/dev/null || true; pid=""
+if grep -q webhook-key "$work/out.txt"; then fail "the log contains a webhook key"; fi
+echo "smoke: ok: webhooks signed with the old or the new key are accepted; unsigned or any other key, 401"
 
 status=0
 port="$(node -e 'const s = require("node:net").createServer().listen(0, () => { console.log(s.address().port); s.close(); })')"
-"${clean[@]}" WORKER_COUNT=999 timeout 60 "${next[@]}" start -p "$port" >"$work/out.txt" 2>&1 || status=$?
+"${clean[@]}" WORKER_COUNT=999 WEBHOOK_KEYS="$old_key," timeout 60 "${next[@]}" start -p "$port" >"$work/out.txt" 2>&1 || status=$?
 [ "$status" -eq 1 ] || fail "next start with invalid configuration exited $status, want 1"
-grep -q '^docuconf: 2 configuration problems:$' "$work/out.txt" || fail "no docuconf header"
+grep -q '^docuconf: 3 configuration problems:$' "$work/out.txt" || fail "no docuconf header"
 grep -q '^  - DATABASE_URL \[missing_required\]: required, but not set$' "$work/out.txt" || fail "no DATABASE_URL line"
 grep -q '^  - WORKER_COUNT \[out_of_range\]: ' "$work/out.txt" || fail "no WORKER_COUNT line"
+grep -q '^  - WEBHOOK_KEYS \[out_of_range\]: ' "$work/out.txt" || fail "no WEBHOOK_KEYS line"
+if grep -q webhook-key "$work/out.txt"; then fail "the output contains a webhook key"; fi
 if grep -q '^    at ' "$work/out.txt"; then fail "a stack trace was printed"; fi
 echo "smoke: ok: next start with invalid configuration exits 1 with the docuconf problems"

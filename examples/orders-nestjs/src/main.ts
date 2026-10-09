@@ -4,7 +4,8 @@ import { ConfigService } from "@nestjs/config";
 import { AppModule } from "./app.module.js";
 import type { OrdersConfig } from "./orders.config.js";
 
-const app = await NestFactory.create(AppModule);
+// rawBody: the webhook signature is over the body exactly as sent.
+const app = await NestFactory.create(AppModule, { rawBody: true });
 const config = app.get<ConfigService<OrdersConfig, true>>(ConfigService);
 const port = config.get("PORT", { infer: true });
 await app.listen(port);

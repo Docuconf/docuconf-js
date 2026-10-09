@@ -9,7 +9,7 @@ export default async function Page() {
   const { LOG_LEVEL, ALLOWED_ORIGINS, REQUEST_TIMEOUT, WORKER_COUNT } = env;
   return (
     <main>
-      <pre id="config">{JSON.stringify({ LOG_LEVEL, DATABASE_URL: "***", ALLOWED_ORIGINS, REQUEST_TIMEOUT, WORKER_COUNT })}</pre>
+      <pre id="config">{JSON.stringify({ LOG_LEVEL, DATABASE_URL: "***", ALLOWED_ORIGINS, REQUEST_TIMEOUT, WORKER_COUNT, WEBHOOK_KEYS: "***" })}</pre>
       <ApiBase />
     </main>
   );

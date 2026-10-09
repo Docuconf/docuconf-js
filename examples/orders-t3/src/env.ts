@@ -1,5 +1,6 @@
 // The service's configuration: a T3 Env declaration with docuconf's helpers
-// for what Zod has no word for (secrets, URL schemes, durations, lists).
+// for what Zod has no word for (secrets, URL schemes, durations, lists,
+// and a secret list of keys).
 import { z } from "zod";
 import { createEnv, duration, list, secret, url } from "@docuconf/t3";
 
@@ -23,6 +24,20 @@ export const env = createEnv({
      * - Lower it when the database is the bottleneck.
      */
     WORKER_COUNT: z.coerce.number().int().min(1).max(64).default(4).describe("Number of background order workers"),
+    /**
+     * Keys that verify the signature on incoming payment webhooks.
+     *
+     * A webhook is accepted when it is signed with any key in the list, so the key can be rotated without turning webhooks away. To rotate:
+     *
+     *  1. add the new key as the second item, and roll out;
+     *  2. switch the sender to the new key;
+     *  3. remove the old key, and roll out.
+     *
+     * Each key is 32 to 256 characters, so an empty or truncated key fails at boot. Without this variable, the service rejects every webhook.
+     */
+    WEBHOOK_KEYS: secret(list(z.string(), { minItems: 1, maxItems: 2, itemMinLength: 32, itemMaxLength: 256 }))
+      .optional()
+      .describe("Keys that verify the signature on incoming payment webhooks"),
   },
   runtimeEnv: process.env,
   // On invalid configuration: print every problem and exit 1.

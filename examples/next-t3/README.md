@@ -8,6 +8,9 @@ A Next.js App Router app whose configuration is declared once, in [`src/env.ts`]
 - [`src/instrumentation.ts`](src/instrumentation.ts): `registerEnv` from `@docuconf/t3/next` validates the environment
   when the server starts, and exits 1 if it is wrong.
 - [`src/app/page.tsx`](src/app/page.tsx): a dynamic page (`await connection()`), so it reads values at request time.
+- [`src/app/webhooks/payments/route.ts`](src/app/webhooks/payments/route.ts): `POST /webhooks/payments`, a route
+  handler that accepts a payment webhook signed with any key in the secret key set `WEBHOOK_KEYS`
+  ([`src/webhook.ts`](src/webhook.ts)).
 - [`src/app/api-base.tsx`](src/app/api-base.tsx): a client component importing the same `env.ts`. Bundlers use
   `@docuconf/t3`'s browser build there, which has no Node built-ins.
 - [`contract.cue`](contract.cue): exported from `src/env.ts`, and [`CONFIG.md`](CONFIG.md) and
@@ -40,6 +43,21 @@ docuconf: 2 configuration problems:
 ```
 
 `npm run smoke` does all of this in a temporary directory. `npm run check` fails when `contract.cue` is out of date.
+
+## Rotate a key
+
+`WEBHOOK_KEYS` is a secret list of one or two keys of 32 to 256 characters each. `POST /webhooks/payments` accepts a
+body whose `X-Signature` header is the hex HMAC-SHA256 of the body under any key in the list. The server reads the
+variable once, at start, so a new key reaches it only when it restarts; with two keys valid at once, no webhook is
+turned away while that happens:
+
+1. Add the new key as the second item (`old,new` in the Secret), and roll out.
+2. Switch the sender to the new key.
+3. Remove the old key (`new`), and roll out.
+
+In a values file it is a reference, such as `WEBHOOK_KEYS: {secretKeyRef: {name: orders-webhooks, key: keys}}`. A
+trailing comma or a truncated key stops `npm start` with `WEBHOOK_KEYS [out_of_range]`, without printing the keys.
+`smoke.sh` posts webhooks signed with both keys.
 
 ## Generated docs
 
