@@ -79,12 +79,16 @@ as in CI:
 DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json DOCUCONF_REQUIRE_CONFORMANCE=1 npx vitest run --project core
 ```
 
-Cases that require these capability tags are skipped:
+Capability tags skipped: none. Every case runs, and the suite fails if any is skipped:
 
-| Tag | Why |
-|---|---|
-| `int64` | A JavaScript `number` holds integers exactly only up to 2^53 - 1, so `int` values and list items beyond ±`Number.MAX_SAFE_INTEGER` are `out_of_range`, and the SDKs export `min`/`max` and `itemMin`/`itemMax` within that range. |
-| `json-schema` | `@docuconf/core` has no JSON Schema validator. Contract-first mode checks `json` values against their schema only through a `validateJson` function you pass. |
+- `int64`: contract-first mode returns an `int` (or an int list item) as a `number` within ±`Number.MAX_SAFE_INTEGER`
+  and as an exact `bigint` beyond it, up to the signed 64-bit range, and compares bounds exactly.
+- `json-schema`: contract-first mode checks `json` values against their `schema` with
+  [Ajv](https://ajv.js.org) (JSON Schema draft 2020-12), a dependency of `@docuconf/core`.
+
+The SDKs' declared variables are unchanged: a Zod or class-validator `number` holds integers exactly only up to
+2^53 - 1, so `@docuconf/t3` and `@docuconf/nestjs` reject `int` values and list items beyond ±`Number.MAX_SAFE_INTEGER`
+(`out_of_range`) and export `min`/`max` and `itemMin`/`itemMax` capped to that range.
 
 Releases are published to npm from CI, one package per tag; see [RELEASING.md](RELEASING.md).
 

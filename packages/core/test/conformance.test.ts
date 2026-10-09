@@ -10,15 +10,10 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
-import { DocuconfValidationError, formatDuration, loadContract } from "../src/index.ts";
+import { DocuconfValidationError, formatDuration, jsonText, loadContract, parseJsonExact } from "../src/index.ts";
 
-/** Capability tags this SDK lacks (README, "Conformance"). */
-const UNSUPPORTED = new Set([
-  // A JavaScript number holds integers exactly only up to 2^53 - 1.
-  "int64",
-  // @docuconf/core has no JSON Schema validator; loadContract takes one as validateJson.
-  "json-schema",
-]);
+/** Capability tags this SDK lacks (README, "Conformance"): none, and CI requires 0 skipped. */
+const UNSUPPORTED = new Set<string>([]);
 
 interface Case {
   id: string;
@@ -36,16 +31,6 @@ const casesPath = fromEnv ? resolve(fromEnv) : resolve(repoRoot, "../docuconf-go
 const required = process.env["DOCUCONF_REQUIRE_CONFORMANCE"] === "1";
 const found = existsSync(casesPath);
 
-/** JSON.parse that keeps integers beyond 2^53 exact, as BigInt. */
-function parseExact(text: string): unknown {
-  return JSON.parse(text, (_key, value: unknown, context?: { source?: string }) => {
-    if (typeof value === "number" && Number.isInteger(value) && !Number.isSafeInteger(value) && context?.source && /^-?[0-9]+$/.test(context.source)) {
-      return BigInt(context.source);
-    }
-    return value;
-  });
-}
-
 /** A typed value as the case's JSON writes it. */
 function asJson(type: string, value: unknown): unknown {
   if (value === undefined) return null;
@@ -54,7 +39,9 @@ function asJson(type: string, value: unknown): unknown {
 }
 
 function sameValue(type: string, got: unknown, want: unknown): boolean {
-  if (typeof want === "bigint") return typeof got === "number" && Number.isSafeInteger(got) && BigInt(got) === want;
+  // An int beyond 2^53 must come back as the exact bigint; within it, as a number.
+  if (typeof want === "bigint") return typeof got === "bigint" && got === want;
+  if (typeof got === "bigint") return false;
   if (type === "float" && typeof got === "number" && typeof want === "number") return got === want;
   return JSON.stringify(got) === JSON.stringify(want);
 }
@@ -77,13 +64,17 @@ describe.runIf(found || required)("conformance suite", () => {
   });
   if (!found) return;
 
-  const suite = parseExact(readFileSync(casesPath, "utf8")) as { version: number; cases: Case[] };
+  const suite = parseJsonExact(readFileSync(casesPath, "utf8")) as { version: number; cases: Case[] };
   const skipped = suite.cases.filter((c) => c.requires.some((t) => UNSUPPORTED.has(t)));
   const dir = mkdtempSync(join(tmpdir(), "docuconf-conformance-"));
   afterAll(() => {
     rmSync(dir, { recursive: true, force: true });
     const tags = [...new Set(skipped.flatMap((c) => c.requires.filter((t) => UNSUPPORTED.has(t))))].sort();
-    console.log(`conformance: ${suite.cases.length - skipped.length} run, ${skipped.length} skipped (requires ${tags.join(", ")})`);
+    console.log(`conformance: ${suite.cases.length - skipped.length} run, ${skipped.length} skipped${tags.length ? ` (requires ${tags.join(", ")})` : ""}`);
+  });
+
+  it("skips no case", () => {
+    expect(skipped.map((c) => c.id)).toEqual([]);
   });
 
   it("reads version 1", () => {
@@ -107,7 +98,7 @@ describe.runIf(found || required)("conformance suite", () => {
         for (const [name, want] of Object.entries(c.expect)) {
           const type = c.contract.vars[name]!.type;
           const got = asJson(type, values![name]);
-          expect(sameValue(type, got, want), `${name}: got ${JSON.stringify(got)}, want ${JSON.stringify(want, (_k, v: unknown) => (typeof v === "bigint" ? v.toString() : v))}`).toBe(true);
+          expect(sameValue(type, got, want), `${name}: got ${jsonText(got)}, want ${jsonText(want)}`).toBe(true);
         }
       }
 

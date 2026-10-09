@@ -8,7 +8,8 @@ import { DURATION_ENCODINGS, type DurationEncoding, parseDuration } from "./dura
 import { detailsProblem } from "./doc-text.ts";
 import { re2RegExp } from "./re2.ts";
 import { type JsonCheck, LIST_ENCODINGS, type ListEncoding, type ValueDecl, convertValue, itemLengthDeclProblems } from "./values.ts";
-import { ENV_NAME, VarReport, type VarType, precheckVar, validDescription } from "./vars.ts";
+import { type SchemaValidator, compileSchema } from "./schema-check.ts";
+import { ENV_NAME, VarReport, type VarType, narrowInt, parseJsonExact, precheckVar, validDescription } from "./vars.ts";
 import { failBoot } from "./termination.ts";
 import { DocuconfDeclarationError, type Violation } from "./violations.ts";
 
@@ -16,9 +17,9 @@ const TYPES: readonly VarType[] = ["string", "int", "float", "bool", "duration",
 
 /** A contract variable, ready to check values against. */
 export interface ContractVar extends ValueDecl {
-  /** int and float bounds. */
-  min?: number | undefined;
-  max?: number | undefined;
+  /** int and float bounds. An int bound beyond ±Number.MAX_SAFE_INTEGER is a bigint. */
+  min?: number | bigint | undefined;
+  max?: number | bigint | undefined;
   /** string length bounds, in characters (code points); maxLength also bounds a url or json value. */
   minLength?: number | undefined;
   maxLength?: number | undefined;
@@ -30,6 +31,8 @@ export interface ContractVar extends ValueDecl {
   maxItems?: number | undefined;
   /** The default as a typed value (milliseconds for a duration). */
   default?: unknown;
+  /** For a `json` variable with a `schema`: the compiled JSON Schema check. */
+  schemaCheck?: SchemaValidator | undefined;
 }
 
 /** A contract read for contract-first validation. */
@@ -43,6 +46,20 @@ type Json = Record<string, unknown>;
 const isObject = (x: unknown): x is Json => typeof x === "object" && x !== null && !Array.isArray(x);
 const isInt = (x: unknown): x is number => typeof x === "number" && Number.isInteger(x);
 const isCount = (x: unknown): x is number => isInt(x) && x >= 0;
+/** An int bound: a number, or a bigint beyond 2^53 from an exactly parsed contract. */
+const isInt64 = (x: unknown): x is number | bigint =>
+  isInt(x) ? Math.abs(x) <= 2 ** 63 : typeof x === "bigint" && x >= -(2n ** 63n) && x < 2n ** 63n;
+
+/** A bigint, anywhere in `x`, as a number: for fields that are not int64. */
+function unbig(x: unknown): unknown {
+  if (typeof x === "bigint") return Number(x);
+  if (Array.isArray(x)) return x.map(unbig);
+  if (isObject(x)) return Object.fromEntries(Object.entries(x).map(([k, v]) => [k, unbig(v)]));
+  return x;
+}
+
+/** The fields that keep a bigint (int64), by type; elsewhere a bigint is read as a number. */
+const INT64_FIELDS: Partial<Record<VarType, readonly string[]>> = { int: ["min", "max", "default"], list: ["itemMin", "itemMax", "default"] };
 
 /**
  * Reads a contract exported as JSON (an object, or its JSON text). Fields
@@ -51,7 +68,8 @@ const isCount = (x: unknown): x is number => isInt(x) && x >= 0;
  * mode. Throws DocuconfDeclarationError listing every problem.
  */
 export function parseContract(contract: unknown): ContractDeclaration {
-  const doc: unknown = typeof contract === "string" ? JSON.parse(contract) : contract;
+  // Integers beyond 2^53 (an int's min, max or default) are read exactly.
+  const doc: unknown = typeof contract === "string" ? parseJsonExact(contract) : contract;
   const problems: string[] = [];
   if (!isObject(doc)) throw new DocuconfDeclarationError(["the contract must be a JSON object"]);
   if (doc["apiVersion"] !== "docuconf.dev/v1alpha1") problems.push(`apiVersion must be "docuconf.dev/v1alpha1"`);
@@ -68,13 +86,15 @@ export function parseContract(contract: unknown): ContractDeclaration {
   return { name: typeof metadata["name"] === "string" ? metadata["name"] : undefined, vars };
 }
 
-function readVar(name: string, raw: unknown, problem: (m: string) => void): ContractVar | undefined {
+function readVar(name: string, given: unknown, problem: (m: string) => void): ContractVar | undefined {
   if (!ENV_NAME.test(name)) problem(`variable names must match ${ENV_NAME.source}`);
-  if (!isObject(raw)) {
+  if (!isObject(given)) {
     problem("must be an object");
     return undefined;
   }
-  const type = raw["type"] as VarType;
+  const type = given["type"] as VarType;
+  const keep = INT64_FIELDS[type] ?? [];
+  const raw = Object.fromEntries(Object.entries(given).map(([k, x]) => [k, keep.includes(k) ? x : unbig(x)]));
   if (!TYPES.includes(type)) {
     problem(`unknown type ${JSON.stringify(raw["type"])}`);
     return undefined;
@@ -90,7 +110,8 @@ function readVar(name: string, raw: unknown, problem: (m: string) => void): Cont
     if (typeof x !== "boolean") problem(`${k} must be a boolean`);
     return x === true;
   };
-  const v: ContractVar = { name, type, secret: flag("secret"), required: flag("required"), contract: raw };
+  // int values hold the full 64-bit range (a bigint beyond 2^53).
+  const v: ContractVar = { name, type, secret: flag("secret"), required: flag("required"), contract: raw, int64: true };
   const opt = <T>(k: string, ok: (x: unknown) => x is T, what: string): T | undefined => {
     const x = raw[k];
     if (x === undefined) return undefined;
@@ -124,8 +145,8 @@ function readVar(name: string, raw: unknown, problem: (m: string) => void): Cont
       break;
     }
     case "int":
-      v.min = opt("min", isInt, "an integer");
-      v.max = opt("max", isInt, "an integer");
+      v.min = narrowBound(opt("min", isInt64, "a 64-bit integer"));
+      v.max = narrowBound(opt("max", isInt64, "a 64-bit integer"));
       break;
     case "float":
       v.min = opt("min", isNumber, "a number");
@@ -160,17 +181,23 @@ function readVar(name: string, raw: unknown, problem: (m: string) => void): Cont
       if (v.separator === "") problem("separator must not be empty");
       v.minItems = opt("minItems", isCount, "a non-negative integer");
       v.maxItems = opt("maxItems", isCount, "a non-negative integer");
-      v.itemMin = opt("itemMin", isInt, "an integer");
-      v.itemMax = opt("itemMax", isInt, "an integer");
+      v.itemMin = narrowBound(opt("itemMin", isInt64, "a 64-bit integer"));
+      v.itemMax = narrowBound(opt("itemMax", isInt64, "a 64-bit integer"));
       if (v.items !== "int" && (v.itemMin !== undefined || v.itemMax !== undefined)) problem("itemMin and itemMax apply to int items only");
       v.itemMinLength = opt("itemMinLength", isCount, "a non-negative integer");
       v.itemMaxLength = opt("itemMaxLength", isCount, "a non-negative integer");
       for (const m of itemLengthDeclProblems(v.items, v)) problem(m);
       break;
     }
-    case "json":
+    case "json": {
       v.maxLength = opt("maxLength", isCount, "a non-negative integer");
+      if (raw["schema"] !== undefined) {
+        const check = compileSchema(raw["schema"]);
+        if (typeof check === "function") v.schemaCheck = check;
+        else problem(`schema: ${check.problem}`);
+      }
       break;
+    }
     case "bool":
       break;
   }
@@ -179,7 +206,10 @@ function readVar(name: string, raw: unknown, problem: (m: string) => void): Cont
   if (d !== undefined) {
     if (v.required) problem("a required variable cannot have a default");
     if (v.secret) problem("a secret cannot have a default");
-    v.default = type === "duration" && typeof d === "string" ? parseDuration(d) : d;
+    if (type === "duration" && typeof d === "string") v.default = parseDuration(d);
+    else if (type === "int" && (typeof d === "number" || typeof d === "bigint")) v.default = narrowInt(d);
+    else if (type === "list" && Array.isArray(d)) v.default = d.map((x: unknown) => (typeof x === "bigint" ? narrowInt(x) : x));
+    else v.default = d;
   }
   return v;
 }
@@ -187,12 +217,18 @@ function readVar(name: string, raw: unknown, problem: (m: string) => void): Cont
 /** Options for checkContract and loadContract. */
 export interface ContractCheckOptions {
   /**
-   * Validates a `json` variable's parsed value, typically against the
-   * variable's JSON Schema (`decl.contract.schema`). Without it, `json`
-   * values are only parsed.
+   * Validates a `json` variable's parsed value, replacing the built-in check
+   * against the variable's JSON Schema (`decl.contract.schema`, with Ajv).
    */
   validateJson?: JsonCheck;
 }
+
+/** The built-in `json` check: the variable's compiled schema, if it has one. */
+const schemaJsonCheck: JsonCheck = (decl, value) => {
+  const check = (decl as ContractVar).schemaCheck;
+  const issues = check ? check(value) : [];
+  return issues.length > 0 ? { issues } : { value };
+};
 
 /** An indexed item's suffix: a decimal index with no leading zero (SPEC §5). */
 const INDEX = /^(?:0|[1-9][0-9]*)$/;
@@ -231,7 +267,8 @@ function checkConstraints(v: ContractVar, value: unknown, report: VarReport): bo
   switch (v.type) {
     case "int":
     case "float": {
-      const n = value as number;
+      // number or bigint: mixed comparisons are exact.
+      const n = value as number | bigint;
       if (v.min !== undefined && n < v.min) report.add("out_of_range", `must be at least ${v.min}${got}`);
       else if (v.max !== undefined && n > v.max) report.add("out_of_range", `must be at most ${v.max}${got}`);
       break;
@@ -291,13 +328,18 @@ export function checkContract(
       if (v.default !== undefined) value = v.default;
       else if (v.required) report.add("missing_required", "required, but not set");
     } else if (pre.ok) {
-      const r = convertValue(v, pre.value as string | string[], report, opts.validateJson);
+      const r = convertValue(v, pre.value as string | string[], report, opts.validateJson ?? schemaJsonCheck);
       if (r.ok && checkConstraints(v, r.value, report)) value = r.value;
     }
     values[name] = value;
     violations.push(...report.violations);
   }
   return { values, violations };
+}
+
+/** An int bound as a number when it is safe. */
+function narrowBound(x: number | bigint | undefined): number | bigint | undefined {
+  return x === undefined ? undefined : narrowInt(x);
 }
 
 function isDeclaration(x: unknown): x is ContractDeclaration {

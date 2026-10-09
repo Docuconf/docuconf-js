@@ -37,18 +37,26 @@ createServer((req, res) => res.end("ok")).listen(env.PORT as number);
 It runs the same checks as the SDKs' boot validation and parses every wire encoding (SPEC §5): lists as `csv` (with the
 contract's `separator`), `json` or `indexed` (`NAME__0`, `NAME__1`, ..., numbered from 0 with no gap, else `invalid_type`; a suffix that is
 not an index, such as `NAME__HOST`, is not an item), and durations as `go`, `iso8601` (`PT1M30S`,
-`PT1.5S`), `seconds` (`90`, `0.25`) or `timespan` (`[d.]hh:mm:ss[.fffffff]`). Values are typed as in the SDKs: `int`
-and `float` are numbers, durations milliseconds, lists arrays, `json` the parsed value, absent optional variables
-`undefined`. An `int` beyond ±`Number.MAX_SAFE_INTEGER`, as an `int` variable or a list item, is `out_of_range`.
+`PT1.5S`), `seconds` (`90`, `0.25`) or `timespan` (`[d.]hh:mm:ss[.fffffff]`). Values are typed as in the SDKs:
+`float` is a number, durations milliseconds, lists arrays, `json` the parsed value, absent optional variables
+`undefined`. An `int` holds the signed 64-bit range, as an `int` variable or a list item: it is a `number` within
+±`Number.MAX_SAFE_INTEGER` and an exact `bigint` beyond it (so check `typeof` before arithmetic on a value that can be
+that large), and is `out_of_range` beyond 64 bits. `min`, `max`, `itemMin` and `itemMax` compare exactly; a contract
+given as JSON text is read with integers beyond 2^53 kept exact (an object you parsed yourself has already lost them).
 Length limits (`minLength`/`maxLength` on a `string`, `maxLength` on a `url` or `json` value, `itemMinLength`/`itemMaxLength`
 on each item of a `string` list after splitting) count characters, meaning Unicode code points, not UTF-16 units; a `json`
 value is measured as received, before parsing. They are `out_of_range`, and a secret's message gives only its length.
 
 On failure it writes every violation to the termination log, then, with `exitOnError: true`, prints
 `docuconf: N configuration problems:` with one line per problem and exits 1; otherwise (and always under a test runner)
-it throws `DocuconfValidationError`. Options: `env` (default `process.env`), `terminationLog`, `exitOnError`, and `validateJson`, a function that checks a `json` value
-against the variable's JSON Schema (`decl.contract.schema`) with the validator of your choice; without it, `json` values
-are only parsed. `checkContract` returns `{ values, violations }` instead of throwing, and `parseContract` reads a
+it throws `DocuconfValidationError`. Options: `env` (default `process.env`), `terminationLog`, `exitOnError`, and `validateJson`.
+
+A `json` variable with a `schema` is checked against it with [Ajv](https://ajv.js.org), a dependency of this package,
+as JSON Schema draft 2020-12: a value that does not match is `schema_mismatch`, with one violation per problem. Patterns
+are RE2, as elsewhere in the contract; string lengths count code points; `format` is an annotation only. A schema with
+a keyword Ajv does not know, or a pattern that is not RE2, is a declaration error (`DocuconfDeclarationError`), not
+ignored. `validateJson`, a function `(decl, value) => { value } | { issues }`, replaces that check with the validator
+of your choice. `checkContract` returns `{ values, violations }` instead of throwing, and `parseContract` reads a
 contract once for repeated checks. Contract-first mode checks variables only: file inputs in the contract are not
 checked yet.
 

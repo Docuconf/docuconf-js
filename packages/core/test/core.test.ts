@@ -287,10 +287,10 @@ describe("contract-first mode (SPEC §11.2 item 11)", () => {
 
   it("returns typed values, with omitted defaults filled in", () => {
     const env = loadContract(JSON.stringify(contract), {
-      env: { DATABASE_URL: "postgres://db/app", PARTITIONS__0: "3", PARTITIONS__1: "7", TIMEOUT: "00:01:30", LIMITS: "[1]" },
+      env: { DATABASE_URL: "postgres://db/app", PARTITIONS__0: "3", PARTITIONS__1: "7", TIMEOUT: "00:01:30", LIMITS: '{"rps":5}' },
       terminationLog: false,
     });
-    expect(env).toEqual({ PORT: 8080, TIMEOUT: 90_000, PARTITIONS: [3, 7], DATABASE_URL: "postgres://db/app", LIMITS: [1] });
+    expect(env).toEqual({ PORT: 8080, TIMEOUT: 90_000, PARTITIONS: [3, 7], DATABASE_URL: "postgres://db/app", LIMITS: { rps: 5 } });
   });
 
   it("reports every violation without secret values, and calls validateJson", () => {

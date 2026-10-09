@@ -4,7 +4,7 @@
  * these checks, so the conformance suite tests the code apps run.
  */
 import { DURATION_EXAMPLE, type DurationEncoding, formatDuration, parseDurationAs } from "./duration.ts";
-import { type ItemBounds, type VarBase, type VarReport, intItem } from "./vars.ts";
+import { type ItemBounds, type VarBase, type VarReport, exactInt, intItem, parseJsonExact } from "./vars.ts";
 import type { ErrorCode } from "./violations.ts";
 
 /** How a list is written in the environment (SPEC §5). */
@@ -142,7 +142,8 @@ export function convertValue(
     case "enum":
       return { value, ok: true };
     case "int":
-      return { value: Number(value), ok: true };
+      // precheckVar has checked the syntax and range; with int64, a bigint beyond 2^53.
+      return { value: decl.int64 ? exactInt(value) : Number(value), ok: true };
     case "float": {
       const n = Number(value);
       return Number.isFinite(n) ? { value: n, ok: true } : fail({ code: "invalid_type", message: "expected a finite number" });
@@ -172,7 +173,8 @@ export function convertValue(
       if (encoding === "csv") return listItems(decl, splitCsv(value, decl.separator), report);
       let parsed: unknown;
       try {
-        parsed = JSON.parse(value);
+        // With int64, items beyond 2^53 parse exactly, as bigints.
+        parsed = decl.int64 && decl.items === "int" ? parseJsonExact(value) : JSON.parse(value);
       } catch {
         return fail({ code: "invalid_type", message: "expected a JSON array" });
       }
@@ -233,9 +235,10 @@ function listItems(decl: ValueDecl, items: readonly unknown[], report: VarReport
     }
     return ok ? { value: [...items], ok: true } : { value: undefined, ok: false };
   }
-  const out: number[] = [];
+  const out: Array<number | bigint> = [];
   for (const [i, item] of items.entries()) {
-    const r = typed && typeof item !== "number" ? { code: "invalid_type" as const, message: "expected an integer" } : intItem(item, decl);
+    const numeric = typeof item === "number" || (decl.int64 === true && typeof item === "bigint");
+    const r = typed && !numeric ? { code: "invalid_type" as const, message: "expected an integer" } : intItem(item, decl, decl.int64);
     if ("code" in r) {
       report.add(r.code, `item ${i + 1}: ${r.message}${report.got(item)}`);
       ok = false;
