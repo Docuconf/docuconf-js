@@ -9,7 +9,7 @@ interface ZodLikeIssue extends StandardSchemaV1.Issue {
   code?: string;
   origin?: string;
   format?: string;
-  params?: { docuconfCode?: ErrorCode };
+  params?: { docuconfCode?: ErrorCode; docuconfSafe?: boolean };
 }
 
 /** Maps a validator issue to a stable docuconf code. */
@@ -61,7 +61,8 @@ export function validateVar(decl: VarDecl, raw: unknown): { value: unknown; viol
     }
     const p = issuePath(issue);
     const own = issue.message.startsWith("item ") && items !== undefined;
-    report.add(issueCode(issue, decl), `${p ? `${p}: ` : ""}${issue.message}${own ? "" : got}`);
+    // A safe message (a key set's) never holds the value, so it stays for secrets.
+    report.add(issueCode(issue, decl), `${p ? `${p}: ` : ""}${issue.message}${own ? "" : got}`, (issue as ZodLikeIssue).params?.docuconfSafe === true);
   }
   return { value: undefined, violations: report.violations };
 }

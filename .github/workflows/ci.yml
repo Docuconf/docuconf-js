@@ -58,12 +58,19 @@ jobs:
       - name: Install cue
         run: go install cuelang.org/go/cmd/cue@v0.17.1
 
+      # The docuconf CLI from the docuconf-go checkout: the shared export
+      # check (docuconf conformance export) and the generated docs use it.
+      - name: Build the docuconf CLI
+        run: (cd docuconf-go/cmd/docuconf && go build -o "$RUNNER_TEMP/docuconf" .)
+
       # The docuconf-go-facing subset (conformance suite, cue vet of exported
       # contracts); docuconf-go's downstream workflow runs the same script.
+      # Fails if any conformance case is skipped.
       - name: Run scripts/conformance.sh
         run: scripts/conformance.sh
         env:
           DOCUCONF_GO_DIR: ${{ github.workspace }}/docuconf-go
+          DOCUCONF_CLI: ${{ runner.temp }}/docuconf
       # One install for the workspace: @docuconf/core, @docuconf/t3, @docuconf/nestjs.
       - run: npm ci
       - run: npm run typecheck
@@ -76,6 +83,8 @@ jobs:
           # The shared conformance suite (SPEC §12), run by @docuconf/core's tests.
           DOCUCONF_CONFORMANCE: ${{ github.workspace }}/docuconf-go/conformance/cases.json
           DOCUCONF_REQUIRE_CONFORMANCE: "1"
+          # The shared export fixture, checked by docuconf conformance export.
+          DOCUCONF_CLI: ${{ runner.temp }}/docuconf
       # Builds the packages, then the orders examples (workspace members)
       # against them.
       - run: npm run build
@@ -103,7 +112,6 @@ jobs:
       # These are the examples' README commands.
       - name: Generated docs are up to date
         run: |
-          (cd docuconf-go/cmd/docuconf && go build -o "$RUNNER_TEMP/docuconf" .)
           # The step above re-exports contract.cue in place; check the docs
           # against the committed contracts (and their generator.version).
           git checkout -- examples/*/contract.cue

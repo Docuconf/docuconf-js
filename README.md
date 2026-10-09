@@ -79,18 +79,49 @@ as in CI:
 DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json DOCUCONF_REQUIRE_CONFORMANCE=1 npx vitest run --project core
 ```
 
-Capability tags skipped: none. Every case runs, and the suite fails if any is skipped:
+Capability tags skipped: **none**. The runner keeps an allow-list of the tags this SDK supports, which is every tag in
+the suite: `int64`, `json-schema`, `key-set`, `deprecated`, `strict-parsing`, `files`, `profiles` and `overlays`. A case
+with any other tag, such as one added to the suite later, is skipped, never run (SPEC §12), and the suite fails if any
+case is skipped, so CI fails too.
 
 - `int64`: contract-first mode returns an `int` (or an int list item) as a `number` within ±`Number.MAX_SAFE_INTEGER`
   and as an exact `bigint` beyond it, up to the signed 64-bit range, and compares bounds exactly.
 - `json-schema`: contract-first mode checks `json` values against their `schema` with
   [Ajv](https://ajv.js.org) (JSON Schema draft 2020-12), a dependency of `@docuconf/core`.
+- `key-set`: the `keySet` type, in both SDKs (`keySet()` in `@docuconf/t3`, `@KeySet()` in `@docuconf/nestjs`) and in
+  contract-first mode. Its value is a `KeySet`.
+- `deprecated`: a deprecated input that is set loads, and boot logs a warning with its name and message.
+- `strict-parsing`: SPEC §5's exact grammars, in both SDKs and contract-first mode: nothing is trimmed (`csv` items
+  included), a `bool` is `true` or `false` in any case, numbers and durations follow their grammar, and anything a host
+  library would also accept is `invalid_type`.
+- `files`: contract-first mode loads and checks file inputs under `DOCUCONF_FILE_ROOT`: config files in `json`, `yaml`
+  and `toml`, TLS key pairs, CA bundles, PKCS#12 keystores (through Node's OpenSSL) and text files.
+- `profiles` and `overlays`: contract-first mode layers the base default, the profile, the overlay and the environment.
+  The SDKs' declaration APIs have neither: Node does not layer configuration files.
 
-The SDKs' declared variables are unchanged: a Zod or class-validator `number` holds integers exactly only up to
-2^53 - 1, so `@docuconf/t3` and `@docuconf/nestjs` reject `int` values and list items beyond ±`Number.MAX_SAFE_INTEGER`
-(`out_of_range`) and export `min`/`max` and `itemMin`/`itemMax` capped to that range.
+For each case the runner writes the case's files into a new temporary directory and loads with `DOCUCONF_FILE_ROOT` set
+to it. The SDKs' export is checked against the shared fixture too: `packages/t3/test/fixtures/conformance-fixture.ts`
+declares docuconf-go's `conformance/export/fixture.yaml` with `@docuconf/t3`, and the test exports it and runs
+`docuconf conformance export --golden conformance/export/golden.cue` (the CLI from `DOCUCONF_CLI`, else `PATH`).
+`scripts/conformance.sh` builds the CLI from the docuconf-go checkout.
+
+A Zod or class-validator `number` holds integers exactly only up to 2^53 - 1, so `@docuconf/t3` and `@docuconf/nestjs`
+reject `int` values and list items beyond ±`Number.MAX_SAFE_INTEGER` (`out_of_range`) and export `min`/`max` and
+`itemMin`/`itemMax` capped to that range. `int64()` in `@docuconf/t3` holds the whole 64-bit range.
+
+A key set, from the [orders example](examples/orders-t3/src/env.ts), and the webhook check that uses it:
+
+```ts
+    WEBHOOK_KEYS: keySet({ keyMinLength: 32, keyMaxLength: 256 }).optional().describe("Keys that verify the signature on incoming payment webhooks"),
+```
+
+```ts
+  return keys.verify((key) => timingSafeEqual(createHmac("sha256", key).update(body).digest(), got));
+```
 
 Releases are published to npm from CI, one package per tag; see [RELEASING.md](RELEASING.md).
+
+Report a vulnerability privately, through GitHub's private vulnerability reporting: see [SECURITY.md](SECURITY.md).
 
 ## Licence
 

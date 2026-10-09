@@ -1,5 +1,6 @@
 import { createHmac } from "node:crypto";
 import { describe, expect, it } from "vitest";
+import type { KeySet } from "@docuconf/nestjs";
 import { validate } from "../src/orders.config.ts";
 import { verify } from "../src/webhook.ts";
 
@@ -11,7 +12,7 @@ const base = { DATABASE_URL: "postgres://orders:pw@db:5432/orders" };
 const sign = (key: string) => createHmac("sha256", key).update(body).digest("hex");
 
 /** WEBHOOK_KEYS as the service loads it at boot. */
-function keys(value: string): string[] | undefined {
+function keys(value: string): KeySet | undefined {
   const { values, violations } = validate.check({ ...base, WEBHOOK_KEYS: value });
   expect(violations).toEqual([]);
   return values.WEBHOOK_KEYS;

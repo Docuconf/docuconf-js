@@ -3,14 +3,26 @@
 // API follows their needs and may change in any minor version.
 export * from "./pure.ts";
 export { INPUT_NAME, RESERVED_DIRS, describeFiles, type DescribeFilesOptions } from "./files/declare.ts";
-export { FileState, fileRootFrom, loadFile, resolvePath, type LoadContext, type Loaded } from "./files/load.ts";
+export {
+  FileState,
+  fileRootFrom,
+  loadFile,
+  parseStructured,
+  resolvePath,
+  type LoadContext,
+  type Loaded,
+  type StructuredFormat,
+} from "./files/load.ts";
 export { TlsMaterialHolder, checkCaBundle, checkTls, parseCertificates, type TlsCheckOptions, type TlsParts } from "./files/tls.ts";
 export {
   checkContract,
   loadContract,
   parseContract,
   type ContractCheckOptions,
+  type ContractCheckResult,
   type ContractDeclaration,
+  type ContractOverlay,
+  type ContractProfiles,
   type ContractVar,
   type LoadContractOptions,
 } from "./contract-first.ts";

@@ -4,41 +4,54 @@
  * "300ms", "-1.5h" or "2h45m". Valid units are ns, us (or µs), ms, s, m, h.
  */
 
-const UNIT_NS: Record<string, number> = {
-  ns: 1,
-  us: 1e3,
-  "µs": 1e3,
-  "μs": 1e3,
-  ms: 1e6,
-  s: 1e9,
-  m: 60e9,
-  h: 3600e9,
+const UNIT_NS: Record<string, bigint> = {
+  ns: 1n,
+  us: 1_000n,
+  "µs": 1_000n,
+  "μs": 1_000n,
+  ms: 1_000_000n,
+  s: 1_000_000_000n,
+  m: 60_000_000_000n,
+  h: 3_600_000_000_000n,
 };
 
-const PART = /^([0-9]*(?:\.[0-9]*)?)(ns|us|µs|μs|ms|s|m|h)/;
+const PART = /^([0-9]*)(?:\.([0-9]*))?(ns|us|µs|μs|ms|s|m|h)/;
 
-/** Parses a Go duration string. Returns milliseconds, or undefined if invalid. */
+/** Go's time.Duration range: -2^63 to 2^63 - 1 nanoseconds. */
+const MAX_NS = 2n ** 63n - 1n;
+
+/**
+ * Parses a Go duration string, exactly as time.ParseDuration does (SPEC §5):
+ * an optional sign, then `0` or numbers with units, such as "1m30s", "1.5h",
+ * "-5s" or "+5s". Fractions are truncated to whole nanoseconds. Returns
+ * milliseconds (negative for a negative duration), or undefined if invalid
+ * or outside Go's range of -2^63 to 2^63 - 1 nanoseconds.
+ */
 export function parseDuration(input: string): number | undefined {
   let s = input;
-  let sign = 1;
+  let negative = false;
   if (s.startsWith("-") || s.startsWith("+")) {
-    if (s[0] === "-") sign = -1;
+    negative = s[0] === "-";
     s = s.slice(1);
   }
   if (s === "0") return 0;
   if (s === "") return undefined;
-  let totalNs = 0;
+  let total = 0n;
   while (s.length > 0) {
     const m = PART.exec(s);
     if (!m) return undefined;
-    const num = m[1] ?? "";
-    const unit = m[2] ?? "";
-    if (num === "" || num === "." || !/[0-9]/.test(num)) return undefined;
-    totalNs += Number(num) * (UNIT_NS[unit] ?? NaN);
+    const whole = m[1] ?? "";
+    const frac = m[2] ?? "";
+    const unit = UNIT_NS[m[3]!]!;
+    if (whole === "" && frac === "") return undefined;
+    total += BigInt(whole || "0") * unit;
+    if (frac !== "") total += (BigInt(frac) * unit) / 10n ** BigInt(frac.length);
+    if (total > MAX_NS + 1n) return undefined;
     s = s.slice(m[0].length);
   }
-  if (!Number.isFinite(totalNs)) return undefined;
-  return (sign * totalNs) / 1e6;
+  if (total > (negative ? MAX_NS + 1n : MAX_NS)) return undefined;
+  const ns = negative ? -total : total;
+  return Number(ns / 1_000_000n) + Number(ns % 1_000_000n) / 1e6;
 }
 
 /** The contract's #Duration form: integer components, no sign or fractions. */
@@ -71,6 +84,15 @@ export function formatDuration(ms: number): string {
   return out;
 }
 
+/**
+ * Formats milliseconds as a canonical duration with a sign: "-1m30s" for
+ * -90000. For typed values (a Go duration may be negative); a contract's
+ * own durations use formatDuration.
+ */
+export function formatSignedDuration(ms: number): string {
+  return ms < 0 ? `-${formatDuration(-ms)}` : formatDuration(ms);
+}
+
 /** Normalises a Go duration to its contract form, or returns undefined if invalid. */
 export function canonicalDuration(input: string): string | undefined {
   const ms = parseDuration(input);
@@ -88,22 +110,24 @@ function decimal(whole: string, frac: string | undefined, unitMs: number): numbe
   return Number(whole) * unitMs + (frac ? Number(`0.${frac}`) * unitMs : 0);
 }
 
-const ISO8601 = /^P(?:([0-9]+)D)?(?:T(?:([0-9]+)H)?(?:([0-9]+)M)?(?:([0-9]+)(?:[.,]([0-9]+))?S)?)?$/i;
+const N = "([0-9]+)(?:[.,]([0-9]+))?";
+const ISO8601 = new RegExp(`^P(?:${N}D)?(?:T(?:${N}H)?(?:${N}M)?(?:${N}S)?)?$`);
 
 /**
- * An ISO 8601 duration as java.time.Duration reads it: `PT90S`, `PT1.5S`,
- * `P1DT2H3M4.5S`. Days count as 24 hours; years, months and weeks have no
- * fixed length, so they are rejected, as is a sign. Returns milliseconds,
- * or undefined if invalid.
+ * An ISO 8601 duration (SPEC §5): `P[nD][T[nH][nM][nS]]`, such as `PT90S`,
+ * `PT1,5S` or `P1DT2H3M4.5S`, where each `n` may have a fraction after `.`
+ * or `,`. Upper case only. Days count as 24 hours; years, months and weeks
+ * have no fixed length, so they are rejected, as is a sign. Returns
+ * milliseconds, or undefined if invalid.
  */
 export function parseIso8601Duration(input: string): number | undefined {
   const m = ISO8601.exec(input);
   if (!m) return undefined;
-  const [, d, h, min, s, frac] = m;
+  const [, d, df, h, hf, min, mf, s, sf] = m;
   if (d === undefined && h === undefined && min === undefined && s === undefined) return undefined;
   // "P1DT" has a time designator with nothing after it.
-  if (/T$/i.test(input)) return undefined;
-  return decimal(d ?? "0", undefined, 86_400_000) + decimal(h ?? "0", undefined, 3_600_000) + decimal(min ?? "0", undefined, 60_000) + decimal(s ?? "0", frac, 1000);
+  if (input.endsWith("T")) return undefined;
+  return decimal(d ?? "0", df, 86_400_000) + decimal(h ?? "0", hf, 3_600_000) + decimal(min ?? "0", mf, 60_000) + decimal(s ?? "0", sf, 1000);
 }
 
 const SECONDS = /^([0-9]+)(?:\.([0-9]+))?$/;
@@ -114,11 +138,12 @@ export function parseSecondsDuration(input: string): number | undefined {
   return m ? decimal(m[1]!, m[2], 1000) : undefined;
 }
 
-const TIMESPAN = /^(?:([0-9]+)\.)?([0-9]{1,2}):([0-9]{1,2}):([0-9]{1,2})(?:\.([0-9]{1,7}))?$/;
+const TIMESPAN = /^(?:([0-9]+)\.)?([0-9]{1,2}):([0-9]{2}):([0-9]{2})(?:\.([0-9]{1,7}))?$/;
 
 /**
  * A .NET TimeSpan in its constant form, `[d.]hh:mm:ss[.fffffff]`
- * (`00:01:30`, `1.02:03:04.5`). Returns milliseconds, or undefined if
+ * (`00:01:30`, `1.02:03:04.5`): `hh` one or two digits below 24, `mm` and
+ * `ss` two digits below 60 (SPEC §5). Returns milliseconds, or undefined if
  * invalid.
  */
 export function parseTimespan(input: string): number | undefined {

@@ -23,7 +23,7 @@ the T3 Env version is in [`../orders-t3`](../orders-t3).
 | `ALLOWED_ORIGINS` | list of strings, comma-separated | at least 1 item; default `http://localhost:3000` |
 | `REQUEST_TIMEOUT` | duration (`30s`, `1m30s`) | 1s to 5m, default `30s` |
 | `WORKER_COUNT` | int | 1 to 64, default `4` |
-| `WEBHOOK_KEYS` | list of strings, comma-separated | secret, optional; 1 to 2 keys of 32 to 256 characters each |
+| `WEBHOOK_KEYS` | key set, comma-separated | secret, optional; 1 to 2 keys of 32 to 256 characters each |
 
 ## Run it
 
@@ -60,15 +60,18 @@ output line by line.
 
 ## Rotate a key
 
-`WEBHOOK_KEYS` is a key set: `POST /webhooks/payments` accepts a body whose `X-Signature` header is the hex HMAC-SHA256
-of the body under any key in the list ([`src/webhook.ts`](src/webhook.ts); [`src/main.ts`](src/main.ts) creates the app
-with `rawBody: true`, so the signature is checked over the body exactly as sent). A variable is read once, at start, so
-a new key reaches the service only when it restarts; with two keys valid at once, no webhook is turned away while that
-happens:
+`WEBHOOK_KEYS` is a key set, declared with `@KeySet()`: `POST /webhooks/payments` accepts a body whose `X-Signature`
+header is the hex HMAC-SHA256 of the body under any key in the set, checked with the key set's `verify`
+([`src/webhook.ts`](src/webhook.ts); [`src/main.ts`](src/main.ts) creates the app with `rawBody: true`, so the
+signature is checked over the body exactly as sent). A variable is read once, at start, so a new key reaches the
+service only when it restarts; with two keys valid at once, no webhook is turned away while that happens:
 
-1. Add the new key as the second item (`old,new` in the Secret), and roll out.
+1. Add the new key to the set (`old,new` in the Secret), and roll out.
 2. Switch the sender to the new key.
 3. Remove the old key (`new`), and roll out.
+
+The generated [`CONFIG.md`](CONFIG.md) prints these steps for every key set, so the variable's own documentation does
+not repeat them.
 
 In the platform's values file the key set is, like every secret, a reference: one Secret key holding `old,new` while
 rotating.
@@ -85,7 +88,7 @@ at boot instead of locking out the sender, and the error does not print the keys
 $ DATABASE_URL=postgres://orders:secret@localhost:5432/orders \
     WEBHOOK_KEYS=old-webhook-key-0123456789abcdef0123, node dist/main.js
 docuconf: 1 configuration problem:
-  - WEBHOOK_KEYS [out_of_range]: item 2 is 0 characters, below itemMinLength 32
+  - WEBHOOK_KEYS [out_of_range]: key 2 is empty
 ```
 
 [`test/webhook.test.ts`](test/webhook.test.ts) walks through a rotation (`npm test` at the repository root runs it),

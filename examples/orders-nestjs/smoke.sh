@@ -66,13 +66,13 @@ grep -q out_of_range "$out" || fail "no out_of_range in the startup output"
 [ "$(wc -l <"$out")" -eq 3 ] || fail "the output is not exactly the header and one line per problem"
 echo "smoke: ok: PORT=0 without DATABASE_URL exits 1 with exactly the missing_required and out_of_range lines"
 
-# An empty second key (a trailing comma): itemMinLength fails it at boot,
+# An empty second key (a trailing comma): the key set fails it at boot,
 # without printing either key.
 if "${clean[@]}" DATABASE_URL="postgres://orders:$secret@localhost:5432/orders" WEBHOOK_KEYS="$old_key," timeout 30 "${start[@]}" >"$out" 2>&1; then
   fail "started with an empty webhook key"
 fi
 [ "$(head -n 1 "$out")" = "docuconf: 1 configuration problem:" ] || fail "the output does not start with the docuconf header"
 [ "$(wc -l <"$out")" -eq 2 ] || fail "the output is not exactly the header and one problem"
-grep -q '^  - WEBHOOK_KEYS \[out_of_range\]: ' "$out" || fail "no WEBHOOK_KEYS out_of_range line"
+grep -qx '  - WEBHOOK_KEYS \[out_of_range\]: key 2 is empty' "$out" || fail "no 'WEBHOOK_KEYS [out_of_range]: key 2 is empty' line"
 if grep -q webhook-key "$out"; then fail "the output contains a webhook key"; fi
 echo "smoke: ok: an empty webhook key exits 1 with out_of_range, printing no key"

@@ -17,6 +17,7 @@ export {
   DURATION_EXAMPLE,
   canonicalDuration,
   formatDuration,
+  formatSignedDuration,
   parseDuration,
   parseDurationAs,
   parseIso8601Duration,
@@ -40,10 +41,16 @@ export {
   type ValueDecl,
 } from "./values.ts";
 export { closeSchema, type JsonSchema } from "./jsonschema.ts";
+export { KEYSET_DEFAULTS, KeySet, keySetContract, keySetDeclProblems, keySetProblems, type KeySetBounds } from "./keyset.ts";
 export { cleanPattern, nonRe2Feature, re2RegExp } from "./re2.ts";
 export {
+  BOOL_SYNTAX,
   ENV_NAME,
+  FLOAT_SYNTAX,
   GENERIC,
+  MAX_DEPRECATED_MESSAGE,
+  deprecatedProblems,
+  deprecatedWarning,
   nextFloat,
   secretMessage,
   typoWarnings,

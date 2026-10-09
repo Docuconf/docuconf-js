@@ -3,7 +3,7 @@ import { CONTRACT_DURATION, canonicalDuration } from "../duration.ts";
 import { closeSchema } from "../jsonschema.ts";
 import { cleanPattern, nonRe2Feature } from "../re2.ts";
 import { detailsProblem } from "../doc-text.ts";
-import { ENV_NAME, validDescription } from "../vars.ts";
+import { ENV_NAME, deprecatedProblems, validDescription } from "../vars.ts";
 import type { FileInput, SchemaAdapter } from "./spec.ts";
 
 export const INPUT_NAME = /^[a-z]([-a-z0-9]{0,40}[a-z0-9])?$/;
@@ -90,13 +90,13 @@ export function describeFiles(
     if (o.maxSize !== undefined) c["maxSize"] = o.maxSize;
     if (o.group !== undefined) c["group"] = o.group;
     if (o.deprecated !== undefined) {
-      if (o.deprecated.replacedBy !== undefined && !INPUT_NAME.test(o.deprecated.replacedBy)) p("deprecated.replacedBy must be an input name");
+      for (const m of deprecatedProblems(o.deprecated, o.required === true, INPUT_NAME)) p(m);
       c["deprecated"] = o.deprecated;
     }
 
     switch (input.type) {
       case "config": {
-        if (o["format"] !== "json" && o["format"] !== "yaml") p('format must be "json" or "yaml"');
+        if (o["format"] !== "json" && o["format"] !== "yaml" && o["format"] !== "toml") p('format must be "json", "yaml" or "toml"');
         try {
           c["schema"] = closeSchema(adapter.jsonSchema(o["schema"]));
         } catch (e) {
