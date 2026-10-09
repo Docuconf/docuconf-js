@@ -255,7 +255,8 @@ describe("int list item bounds (SPEC §4.3 itemMin, itemMax)", () => {
     expect(run({ SHARDS: "3,-1" })).toEqual([["SHARDS", "out_of_range"]]);
     expect(run({ SHARDS: "1024" })).toEqual([["SHARDS", "out_of_range"]]);
     expect(run({ IDS: "1,9007199254740993" })).toEqual([["IDS", "out_of_range"]]);
-    expect(run({ IDS: "1, 2" })).toEqual([]);
+    // Items are never trimmed (SPEC §5).
+    expect(run({ IDS: "1, 2" })).toEqual([["IDS", "invalid_type"]]);
     expect(run({ IDS: "1,x,y" })).toEqual([["IDS", "invalid_type"], ["IDS", "invalid_type"]]);
     expect(run({ IDS: "0x10" })).toEqual([["IDS", "invalid_type"]]);
     expect(run({ SHARDS: "0,7,1023", IDS: "-5" })).toEqual([]);
@@ -263,8 +264,10 @@ describe("int list item bounds (SPEC §4.3 itemMin, itemMax)", () => {
 });
 
 describe("durations", () => {
-  it("rejects a negative duration, which no contract can express", () => {
-    expect(codes(failure({ ...good, TIMEOUT: "-5s" }))).toEqual([["TIMEOUT", "invalid_type"]]);
+  it("takes a sign, as Go's grammar does (SPEC §5), and bounds it", () => {
+    expect(load({ ...good, TIMEOUT: "-5s" }).TIMEOUT).toBe(-5000);
+    expect(load({ ...good, TIMEOUT: "+5s" }).TIMEOUT).toBe(5000);
+    for (const bad of ["5", "5S", "1d", "1m 30s", " 5s"]) expect(codes(failure({ ...good, TIMEOUT: bad }))).toEqual([["TIMEOUT", "invalid_type"]]);
     expect(codes(failure({ ...good, TIMEOUT: "6m" }))).toEqual([["TIMEOUT", "out_of_range"]]);
   });
 });

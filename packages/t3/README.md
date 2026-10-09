@@ -217,12 +217,14 @@ Only the `server` section is runtime configuration. T3's `client` section (and `
 |---|---|---|
 | `string` | `z.string()`, with `.min()`, `.max()`, `.regex()` | `string` |
 | `int` | `z.coerce.number().int()`, with `.min()`, `.max()` | `number`, within ±`Number.MAX_SAFE_INTEGER` |
+| `int` (64-bit) | `int64({ min, max })` | `number` within ±`Number.MAX_SAFE_INTEGER`, exact `bigint` beyond |
 | `float` | `z.coerce.number()` | `number` |
 | `bool` | `z.stringbool()` | `boolean` |
 | `duration` | `duration({ min, max, default })`, Go syntax (`30s`, `1m30s`) | milliseconds |
 | `url` | `url({ schemes, maxLength })` | `string` |
 | `enum` | `z.enum([...])` | union of the values |
 | `list` | `list(item, { separator, minItems, maxItems, itemMinLength, itemMaxLength })`, items strings or ints | array |
+| `keySet` | `keySet({ separator, minKeys, maxKeys, keyMinLength, keyMaxLength })`, always secret | `KeySet` |
 | `json` | `json(schema, { maxLength })` | parsed object |
 
 - **Validators.** Zod 4 is first class. Other validators that implement [Standard JSON Schema](https://standardschema.dev) (ArkType, or Valibot wrapped in `toStandardJsonSchema()` from `@valibot/to-json-schema`) work for plain strings, numbers and enums. `duration`, `list`, `url` and `json` build Zod schemas, so `zod` is a peer dependency.
@@ -234,14 +236,49 @@ Only the `server` section is runtime configuration. T3's `client` section (and `
 - **Booleans**: `z.coerce.boolean()` turns `"false"` into `true`, so the declaration check rejects it and points to `z.stringbool()`.
 - **Not supported**, with a hint saying what to use: `z.union()` (use `z.enum`), `.nullable()` (use `.optional()`), dates, and objects or arrays outside `json()` and `list()`.
 - **Patterns** are RE2 and match anywhere in the value, as `RegExp.test` does; anchor with `^...$`. Lookaround and backreferences are rejected.
-- **Empty strings** count as unset for every type except `string`. Values are never trimmed, except around list separators (`a, b` is `["a", "b"]`). Integers must be plain base-10 (`" 42"`, `0x2A` and `1e3` are rejected).
+- **Empty strings** count as unset for every type except `string`.
+- **Parsing is strict** (SPEC §5), whatever Zod would coerce: values are never trimmed, list items included (`a, b` is `a` and ` b`, and `a,,b` has an empty middle item); a `bool` is `true` or `false` in any case, and nothing else (`1`, `yes` and `on` are `invalid_type`, though `z.stringbool()` takes them); an `int` is decimal digits with an optional sign (`+5` and `007` are fine; `0x10`, `1_000`, `1e3` and `5.0` are not); a `float` has digits on both sides of an optional point and an optional exponent (`.5`, `5.`, `inf` and `1e400` are rejected); a duration follows Go's grammar, sign included (`-5s`, `1.5h`, but not `5`, `5S` or `1d`).
 - **Int list items**: the item schema's range is exported as `itemMin`/`itemMax` and checked at boot (`out_of_range`): `list(z.coerce.number().int().min(0).max(1023))`, or `list(z.int32())` for 32-bit items. Without bounds, items are capped at ±`Number.MAX_SAFE_INTEGER`, as for `int` variables.
 - **Length limits** for fixed-width fields: `url({ maxLength })`, `json(schema, { maxLength })`, and `list(z.string(), { itemMinLength, itemMaxLength })` for each item after splitting. They count characters (Unicode code points), so `日本` is 2 and an emoji is 1, unlike Zod's `.max()`, which counts UTF-16 units. A `json` value is measured as received, whitespace included, before parsing. A value outside them is `out_of_range`; a secret's error gives its length, never its value. Item lengths on an int list, or `itemMinLength` above `itemMaxLength`, throw when declared.
 - **Exclusive float bounds** (`.positive()`, `.gt(0)`) are exported as the nearest double inside them, so the platform rejects exactly what the app does.
 - **Docs metadata**: `annotate(schema, { details, group, examples, configKey, deprecated })`. Zod's `.meta({ details, examples })` also works.
+- **Deprecated** inputs (`deprecated: { message, replacedBy }`, on variables and file inputs) still load and are still checked; when one is set, boot logs a warning with its name and message, never its value. The message must not be blank and is at most 500 characters, and a required input cannot be deprecated (the platform could not stop setting it), so either is a declaration error.
+- **64-bit integers**: a Zod `number` is exact only up to 2^53 - 1, so `z.coerce.number().int()` exports `min`/`max` capped there. `int64()` holds the whole signed 64-bit range, a `bigint` beyond 2^53, and exports only the bounds you give it; inside `json()` or a config file's schema it is `{"type": "integer"}`.
 - **Feature flags**: names starting `FF_`, `FEATURE_`, `FEATURE_FLAG_` or `ENABLE_` produce a warning (SPEC §10): flags that change without a rollout belong in a flag service. So does `NODE_ENV`, which frameworks and test runners set.
 
 Problems with the declaration itself (bad names, short descriptions, non-RE2 patterns, a default that breaks its own constraints, file mount clashes) throw `DocuconfDeclarationError` when `createEnv` runs, in both boot and export mode, each with what to write instead. With `exitOnError`, they print and exit 1 too.
+
+### Key sets
+
+A `keySet` (SPEC §4.3) is a set of secret keys that are all valid at once, so one can be rotated without an outage: the
+keys that verify webhook signatures, inbound API keys, JWT HMAC keys. The platform supplies it as one Secret value,
+`old,new` while rotating. It is always secret, holds 1 to 2 keys unless `minKeys` and `maxKeys` say otherwise, and an
+empty key (a stray comma) or one outside `keyMinLength`..`keyMaxLength` fails at boot (`out_of_range`) without
+printing any key. The value is a `KeySet`: `keys()` in the platform's order, a constant-time `contains(candidate)` for
+an API key a caller presents, and `verify(check)`, which runs your check (an HMAC comparison) with every key, without
+stopping at the first match. It prints as `[redacted]`.
+
+```ts
+import { createHmac, timingSafeEqual } from "node:crypto";
+import { createEnv, keySet } from "@docuconf/t3";
+
+export const env = createEnv({
+  server: {
+    WEBHOOK_KEYS: keySet({ keyMinLength: 32, keyMaxLength: 256 }).describe("Keys that verify webhook signatures"),
+  },
+  runtimeEnv: process.env,
+});
+
+/** Whether `signature` is the HMAC-SHA256 of `body` under any key in the set. */
+export function signedByUs(body: Buffer, signature: Buffer): boolean {
+  return env.WEBHOOK_KEYS.verify((key) => {
+    const want = createHmac("sha256", key).update(body).digest();
+    return want.length === signature.length && timingSafeEqual(want, signature);
+  });
+}
+```
+
+`docuconf docs` prints the rotation steps for every key set, so its details need not repeat them.
 
 ### Descriptions and details
 
@@ -333,7 +370,7 @@ server.listen(8443);
 
 | Helper | Contract type | `env.files.<name>` |
 |---|---|---|
-| `configFile({ format: "json" \| "yaml", schema })` | `config`, with `schema` from `z.toJSONSchema` | the parsed, validated value |
+| `configFile({ format: "json" \| "yaml" \| "toml", schema })` | `config`, with `schema` from `z.toJSONSchema` | the parsed, validated value |
 | `tlsFile({ dnsNames, keyAlgorithms, minRemaining, requireCA })` | `tls` (a `kubernetes.io/tls` directory) | `TlsMaterial`: `{ cert, key, ca }`, `certificate`, `getSecureContext()`, `attach(server)`, `onChange()` |
 | `caBundleFile({ minCertificates })` | `caBundle` | `{ ca }` PEM, plus `certificates` |
 | `keystoreFile({ format: "pkcs12", passwordVar })` | `keystore` | `{ pfx, passphrase }` |
@@ -345,10 +382,10 @@ Every helper takes `path`, `description`, `required`, `pathEnv`, `reload: "resta
 Checks at boot (SPEC §11.2 item 7):
 
 - the file exists, is readable and within `maxSize`;
-- `config`: parses as JSON or YAML (a BOM is accepted) and matches the schema;
+- `config`: parses as JSON, YAML or TOML (a BOM is accepted) and matches the schema;
 - `tls`: `tls.crt` and `tls.key` parse and match; the certificate is valid now with at least `minRemaining` left, covers every `dnsNames` entry, uses an allowed key algorithm, and, with `requireCA`, chains to `ca.crt`. Certificates are checked with `node:crypto`'s `X509Certificate`;
 - `caBundle`: at least `minCertificates` parseable certificates;
-- `keystore`: PKCS#12 opens with the password in `passwordVar` (through Node's OpenSSL). JKS has no Node parser, so only its magic number is checked;
+- `keystore`: PKCS#12 opens with the password in `passwordVar`, an empty password when that variable is unset (through Node's OpenSSL). JKS has no Node parser, so only its magic number is checked;
 - `text`: `pattern`, `minLength`, `maxLength`.
 
 `reload: "watch"` inputs are re-read when their mount directory changes (Kubernetes swaps a `..data` symlink). A reload that fails its checks is logged and the previous value kept. `env.files.<name>` always returns the current value; use `onFileChange(env, name, listener)` to react, and `tlsMaterial.attach(server)` to keep an HTTPS server on the current certificate. When `pathEnv` is set and present in the environment, the file is read from that path instead of `path`.

@@ -1,7 +1,10 @@
 import { type FSWatcher, readFileSync, statSync, watch } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { createSecureContext } from "node:tls";
+import { parse as parseToml } from "smol-toml";
 import { parseDocument } from "yaml";
+import { re2RegExp } from "../re2.ts";
+import { parseJsonExact } from "../vars.ts";
 import { type ErrorCode, type Violation, formatViolations } from "../violations.ts";
 import type { FileInput, Keystore, KeyAlgorithm, SchemaAdapter } from "./spec.ts";
 import { type Report, TlsMaterialHolder, checkCaBundle, checkTls } from "./tls.ts";
@@ -66,6 +69,42 @@ function stripBom(s: string): string {
   return s.charCodeAt(0) === 0xfeff ? s.slice(1) : s;
 }
 
+/** A structured file's format (SPEC §4.6 `config`, §4.7 overlays). */
+export type StructuredFormat = "json" | "yaml" | "toml";
+
+/**
+ * Parses a structured file's text (a BOM already removed). Returns the data,
+ * or a message saying why it does not parse; with `quiet` (a secret file)
+ * the message never quotes the content. With `exact`, JSON integers beyond
+ * 2^53 are read as bigints, as TOML's always are.
+ */
+export function parseStructured(format: StructuredFormat, text: string, quiet = false, exact = false): { data: unknown } | { problem: string } {
+  if (format === "yaml") {
+    const doc = parseDocument(text, { prettyErrors: false });
+    if (doc.errors.length > 0) {
+      const e = doc.errors[0]!;
+      return { problem: quiet ? "not valid YAML" : `not valid YAML: ${e.code} at line ${e.linePos?.[0]?.line ?? "?"}` };
+    }
+    return { data: doc.toJS() };
+  }
+  if (format === "toml") {
+    try {
+      return { data: parseToml(text, { integersAsBigInt: "asNeeded" }) };
+    } catch (e) {
+      // smol-toml's messages quote the line, so never for secrets.
+      return { problem: quiet ? "not valid TOML" : `not valid TOML: ${(e as Error).message.split("\n")[0]}` };
+    }
+  }
+  try {
+    return { data: exact ? parseJsonExact(text) : JSON.parse(text) };
+  } catch (e) {
+    // JSON.parse messages quote the content, so never for secrets.
+    return { problem: quiet ? "not valid JSON" : `not valid JSON: ${(e as Error).message}` };
+  }
+}
+
+const utf8 = new TextDecoder("utf-8", { fatal: true });
+
 /** The loaded value of one file input, or undefined (optional and absent). */
 export interface Loaded {
   value: unknown;
@@ -128,9 +167,17 @@ export function loadFile(name: string, input: FileInput, ctx: LoadContext, now =
     case "binary":
       return { value: data, violations };
     case "text": {
-      const text = data.toString("utf8");
+      let text: string;
+      try {
+        text = utf8.decode(data);
+      } catch {
+        report("file_malformed", `${path} is not UTF-8 text`);
+        return { value: undefined, violations };
+      }
       const pattern = o["pattern"] as string | RegExp | undefined;
-      const re = pattern === undefined ? undefined : typeof pattern === "string" ? new RegExp(pattern) : pattern;
+      // A contract pattern is RE2 (SPEC §4.3), compiled as every other pattern is.
+      const compiled = typeof pattern === "string" ? re2RegExp(pattern) : pattern;
+      const re = compiled instanceof RegExp ? compiled : undefined;
       // Contract patterns match anywhere in the value, like RegExp.test.
       if (re && !re.test(text)) report("pattern_mismatch", `content does not match ${String(re.source)}`);
       const runes = [...text].length;
@@ -148,7 +195,8 @@ export function loadFile(name: string, input: FileInput, ctx: LoadContext, now =
       const format = (o["format"] as "pkcs12" | "jks" | undefined) ?? "pkcs12";
       const passwordVar = o["passwordVar"] as string | undefined;
       const pw = passwordVar ? ctx.values[passwordVar] : undefined;
-      const passphrase = typeof pw === "string" ? pw : undefined;
+      // An unset password variable is an empty password (SPEC §11.2 item 7).
+      const passphrase = typeof pw === "string" ? pw : passwordVar !== undefined ? "" : undefined;
       if (format === "jks") {
         // Node has no JKS parser: check the magic number only.
         const magic = data.length >= 4 ? data.readUInt32BE(0) : 0;
@@ -177,26 +225,12 @@ export function loadFile(name: string, input: FileInput, ctx: LoadContext, now =
     }
     case "config": {
       const text = stripBom(data.toString("utf8"));
-      const secretFile = o.secret === true;
-      let parsed: unknown;
-      if (o["format"] === "yaml") {
-        const doc = parseDocument(text, { prettyErrors: false });
-        if (doc.errors.length > 0) {
-          const e = doc.errors[0]!;
-          report("file_malformed", secretFile ? "not valid YAML" : `not valid YAML: ${e.code} at line ${e.linePos?.[0]?.line ?? "?"}`);
-          return { value: undefined, violations };
-        }
-        parsed = doc.toJS();
-      } else {
-        try {
-          parsed = JSON.parse(text);
-        } catch (e) {
-          // JSON.parse messages quote the content, so never for secrets.
-          report("file_malformed", secretFile ? "not valid JSON" : `not valid JSON: ${(e as Error).message}`);
-          return { value: undefined, violations };
-        }
+      const p = parseStructured((o["format"] as StructuredFormat | undefined) ?? "json", text, o.secret === true);
+      if ("problem" in p) {
+        report("file_malformed", p.problem);
+        return { value: undefined, violations };
       }
-      const r = ctx.adapter.validate(o["schema"], parsed);
+      const r = ctx.adapter.validate(o["schema"], p.data);
       if (r.issues !== undefined) {
         for (const issue of r.issues) report("schema_mismatch", `${issue.path || "(root)"}: ${issue.message}`);
         return { value: undefined, violations };

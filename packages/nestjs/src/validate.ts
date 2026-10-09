@@ -7,6 +7,7 @@ import {
   exportSession,
   failBoot,
   underTestRunner,
+  deprecatedWarning,
   fileRootFrom,
   redactOnPrint,
   redactValues,
@@ -146,12 +147,17 @@ export function docuconfValidate<T extends object>(cls: new () => T, opts: Docuc
     const { values, violations } = validateEnv(decl.vars, env, instance);
     const warnings: string[] = [];
     for (const [name, d] of decl.vars) {
-      if (d.deprecated && env[name] !== undefined && env[name] !== "") warnings.push(`${name} is deprecated: ${d.deprecated.message}`);
+      // Names the variable and the message, never the value.
+      if (d.deprecated && env[name] !== undefined && env[name] !== "") warnings.push(deprecatedWarning(name, d.deprecated));
     }
     warnings.push(...typoWarnings(decl.vars.keys(), config));
     const ctx: LoadContext = { env, values, root, adapter: schemaAdapter };
     const files = new FileState(decl.files, ctx);
     violations.push(...files.loadAll());
+    for (const [name, input] of Object.entries(decl.files)) {
+      const dep = input.options.deprecated;
+      if (dep && files.get(name) !== undefined) warnings.push(deprecatedWarning(name, dep));
+    }
     return { values, violations, warnings, files };
   };
 

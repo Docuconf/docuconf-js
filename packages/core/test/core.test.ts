@@ -159,10 +159,13 @@ describe("typo hints", () => {
 
 describe("lists", () => {
   const decl = (items: "string" | "int"): ValueDecl => ({ name: "L", type: "list", secret: false, required: false, contract: {}, items });
-  it("drops whitespace around csv separators", () => {
+  it("never trims csv items (SPEC §5)", () => {
     const r = convertValue(decl("string"), "https://a.com, https://b.com", new VarReport(decl("string")));
-    expect(r.value).toEqual(["https://a.com", "https://b.com"]);
-    expect(convertValue(decl("int"), "1, 2 ,3", new VarReport(decl("int"))).value).toEqual([1, 2, 3]);
+    expect(r.value).toEqual(["https://a.com", " https://b.com"]);
+    expect(convertValue(decl("string"), "a,,b", new VarReport(decl("string"))).value).toEqual(["a", "", "b"]);
+    const report = new VarReport(decl("int"));
+    expect(convertValue(decl("int"), "1, 2 ,3", report).ok).toBe(false);
+    expect(report.violations.map((v) => v.message)).toEqual(['item 2: expected a base-10 integer (got " 2 ")']);
   });
   it("reports every bad item, quoting the item", () => {
     const report = new VarReport(decl("int"));
@@ -246,14 +249,15 @@ describe("duration encodings (SPEC §5)", () => {
     expect(parseDurationAs("PT90S", "iso8601")).toBe(90_000);
     expect(parseDurationAs("PT1.5S", "iso8601")).toBe(1500);
     expect(parseDurationAs("P1DT2H3M4.5S", "iso8601")).toBe(93_784_500);
-    expect(parseDurationAs("pt1m", "iso8601")).toBe(60_000);
-    for (const bad of ["P", "PT", "P1DT", "PT-1S", "P1M", "1m30s", "PT1.5M"]) expect(parseDurationAs(bad, "iso8601")).toBeUndefined();
+    expect(parseDurationAs("PT1,5S", "iso8601")).toBe(1500);
+    expect(parseDurationAs("PT1.5M", "iso8601")).toBe(90_000);
+    for (const bad of ["P", "PT", "P1DT", "PT-1S", "P1M", "P1W", "1m30s", "pt1m", "-PT5S"]) expect(parseDurationAs(bad, "iso8601")).toBeUndefined();
     expect(parseDurationAs("90", "seconds")).toBe(90_000);
     expect(parseDurationAs("0.25", "seconds")).toBe(250);
     for (const bad of ["90s", "-1", "1e3", ".5", ""]) expect(parseDurationAs(bad, "seconds")).toBeUndefined();
     expect(parseDurationAs("00:01:30", "timespan")).toBe(90_000);
     expect(parseDurationAs("1.02:03:04.5", "timespan")).toBe(93_784_500);
-    for (const bad of ["1m30s", "24:00:00", "00:60:00", "01:30", "00:00:00.12345678"]) expect(parseDurationAs(bad, "timespan")).toBeUndefined();
+    for (const bad of ["1m30s", "24:00:00", "00:60:00", "01:30", "00:00:00.12345678", "00:1:30", "-00:00:05"]) expect(parseDurationAs(bad, "timespan")).toBeUndefined();
     expect(formatDuration(parseDurationAs("1.02:03:04.5", "timespan")!)).toBe("26h3m4s500ms");
   });
 });

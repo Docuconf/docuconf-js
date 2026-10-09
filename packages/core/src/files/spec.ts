@@ -32,7 +32,7 @@ export interface FileCommonOptions<R extends boolean = boolean> {
 
 /** A structured config file. `S` is whatever the SDK binds files to: a Zod schema, a class. */
 export interface ConfigFileOptions<S, R extends boolean> extends FileCommonOptions<R> {
-  format: "json" | "yaml";
+  format: "json" | "yaml" | "toml";
   /** The type the file binds to. Its JSON Schema goes into the contract. */
   schema: S;
 }

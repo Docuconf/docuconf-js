@@ -12,7 +12,8 @@ export type Report = (code: ErrorCode, message: string) => void;
 export function parseCertificates(pem: string, label: string, report: Report): X509Certificate[] | undefined {
   const blocks = pem.match(PEM_CERT) ?? [];
   if (blocks.length === 0) {
-    report("certificate_invalid", `${label} holds no PEM certificate`);
+    // SPEC §11.2 item 5: no PEM certificate at all is a malformed file.
+    report("file_malformed", `${label} holds no PEM certificate`);
     return undefined;
   }
   const out: X509Certificate[] = [];
@@ -62,11 +63,15 @@ export function checkTls(
   };
   const chain = parseCertificates(files.cert, "tls.crt", fail);
   let key;
-  try {
-    key = createPrivateKey(files.key);
-  } catch {
-    // The parser's message could quote key material; keep it generic.
-    fail("certificate_invalid", "tls.key is not a readable PEM private key");
+  if (!/-----BEGIN [A-Z ]*PRIVATE KEY-----/.test(files.key)) {
+    fail("file_malformed", "tls.key holds no PEM private key");
+  } else {
+    try {
+      key = createPrivateKey(files.key);
+    } catch {
+      // The parser's message could quote key material; keep it generic.
+      fail("certificate_invalid", "tls.key is not a readable PEM private key");
+    }
   }
   if (!chain) return undefined;
   const leaf = chain[0]!;

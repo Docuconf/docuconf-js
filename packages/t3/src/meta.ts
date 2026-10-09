@@ -15,6 +15,11 @@ export const SECRET_KEY = "x-docuconf-secret";
 export const ANNOTATIONS_KEY = "x-docuconf-annotations";
 
 export type DocuconfTypeMeta =
+  /**
+   * int64(): an int with the full 64-bit range, bounded only by its own min
+   * and max, in decimal (JSON Schema cannot hold a bigint).
+   */
+  | { type: "int"; int64: true; min?: string; max?: string }
   | { type: "duration"; encoding: "go"; min?: string; max?: string }
   | {
       type: "list";
@@ -28,6 +33,15 @@ export type DocuconfTypeMeta =
       /** For string items: each item's length bounds, in characters. */
       itemMinLength?: number;
       itemMaxLength?: number;
+    }
+  | {
+      type: "keySet";
+      encoding: "csv";
+      separator: string;
+      minKeys?: number;
+      maxKeys?: number;
+      keyMinLength?: number;
+      keyMaxLength?: number;
     }
   | { type: "url"; schemes?: string[]; maxLength?: number }
   | { type: "json"; schema: Record<string, unknown>; maxLength?: number };

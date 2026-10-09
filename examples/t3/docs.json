@@ -368,6 +368,40 @@
               "text": "matches the JSON Schema in the contract"
             }
           ],
+          "fields": [
+            {
+              "path": "currency",
+              "type": "string",
+              "required": true,
+              "enum": [
+                "EUR",
+                "USD",
+                "GBP"
+              ],
+              "constraints": []
+            },
+            {
+              "path": "maxItemsPerOrder",
+              "type": "integer",
+              "required": true,
+              "constraints": [
+                {
+                  "rule": "range",
+                  "params": {
+                    "maximum": 9007199254740991
+                  },
+                  "text": "at most 9007199254740991"
+                },
+                {
+                  "rule": "exclusiveRange",
+                  "params": {
+                    "exclusiveMinimum": 0
+                  },
+                  "text": "above 0"
+                }
+              ]
+            }
+          ],
           "sources": [
             {
               "kind": "inline",
@@ -479,7 +513,7 @@
     },
     {
       "code": "out_of_range",
-      "meaning": "A number, duration, length or list item is outside the input's bounds.",
+      "meaning": "A number, duration, length, list item or key is outside the input's bounds; an empty key always is.",
       "fix": "Use a value within the input's constraints."
     },
     {
@@ -494,13 +528,13 @@
     },
     {
       "code": "too_few_items",
-      "meaning": "The list has fewer items than its minimum.",
-      "fix": "Add items."
+      "meaning": "The list has fewer items than its minimum, or the key set fewer keys.",
+      "fix": "Add items, or keys."
     },
     {
       "code": "too_many_items",
-      "meaning": "The list has more items than its maximum.",
-      "fix": "Remove items."
+      "meaning": "The list has more items than its maximum, or the key set more keys.",
+      "fix": "Remove items, or keys: a key set holds the old key only until the rotation is done."
     },
     {
       "code": "file_missing",

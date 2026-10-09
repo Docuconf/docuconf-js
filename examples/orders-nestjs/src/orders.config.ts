@@ -1,9 +1,9 @@
 // The service's configuration: the class-validator class @nestjs/config
 // validates the environment with, plus docuconf's decorators for what
 // class-validator has no word for (descriptions, secrets, URL schemes,
-// durations, lists, and a secret list of keys).
-import { ArrayMaxSize, ArrayMinSize, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from "class-validator";
-import { Describe, Duration, List, Secret, UrlSchemes, docuconfValidate } from "@docuconf/nestjs";
+// durations, lists, and a key set).
+import { ArrayMinSize, IsEnum, IsInt, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
+import { Describe, Duration, KeySet, List, Secret, UrlSchemes, docuconfValidate } from "@docuconf/nestjs";
 
 export enum LogLevel {
   Debug = "debug",
@@ -43,18 +43,11 @@ export class OrdersConfig {
   /**
    * Keys that verify the signature on incoming payment webhooks.
    *
-   * A webhook is accepted when it is signed with any key in the list, so the key can be rotated without turning webhooks away. To rotate:
-   *
-   *  1. add the new key as the second item, and roll out;
-   *  2. switch the sender to the new key;
-   *  3. remove the old key, and roll out.
-   *
-   * Each key is 32 to 256 characters, so an empty or truncated key fails at boot. Without this variable, the service rejects every webhook.
+   * A webhook is accepted when it is signed with any key in the set, so the key can be rotated without turning webhooks away. Each key is 32 to 256 characters, so an empty or truncated key fails at boot. Without this variable, the service rejects every webhook.
    */
-  @IsOptional() @Secret() @List() @IsString({ each: true }) @ArrayMinSize(1) @ArrayMaxSize(2)
-  @MinLength(32, { each: true }) @MaxLength(256, { each: true })
+  @IsOptional() @KeySet({ keyMinLength: 32, keyMaxLength: 256 })
   @Describe("Keys that verify the signature on incoming payment webhooks")
-  WEBHOOK_KEYS?: string[];
+  WEBHOOK_KEYS?: KeySet;
 }
 
 // exitOnError: on invalid configuration, print every problem and exit 1.
