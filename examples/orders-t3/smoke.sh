@@ -22,6 +22,11 @@ port="$(node -e 'const s = require("node:net").createServer().listen(0, () => { 
 out="$(mktemp)"
 pid=""
 trap '[ -n "$pid" ] && kill "$pid" 2>/dev/null; rm -f "$out"' EXIT
+# GNU timeout is not on macOS: use gtimeout (Homebrew coreutils) or perl.
+if command -v timeout >/dev/null 2>&1; then with_timeout=(timeout)
+elif command -v gtimeout >/dev/null 2>&1; then with_timeout=(gtimeout)
+else with_timeout=(perl -e 'alarm shift; exec @ARGV or die "exec $ARGV[0]: $!\n"')
+fi
 fail() { echo "smoke: FAIL: $*" >&2; cat "$out" >&2; exit 1; }
 
 "${clean[@]}" PORT="$port" DATABASE_URL="postgres://orders:$secret@localhost:5432/orders" WEBHOOK_KEYS="$old_key,$new_key" "${start[@]}" >"$out" 2>&1 &
@@ -58,7 +63,7 @@ pid=""
 if grep -q webhook-key "$out"; then fail "the log contains a webhook key"; fi
 echo "smoke: ok: webhooks signed with the old or the new key are accepted; unsigned or any other key, 401"
 
-if "${clean[@]}" PORT=0 timeout 30 "${start[@]}" >"$out" 2>&1; then fail "started with PORT=0 and no DATABASE_URL"; fi
+if "${clean[@]}" PORT=0 "${with_timeout[@]}" 30 "${start[@]}" >"$out" 2>&1; then fail "started with PORT=0 and no DATABASE_URL"; fi
 grep -q missing_required "$out" || fail "no missing_required in the startup output"
 grep -q out_of_range "$out" || fail "no out_of_range in the startup output"
 # exitOnError: the docuconf list alone, with no stack trace.
@@ -68,7 +73,7 @@ echo "smoke: ok: PORT=0 without DATABASE_URL exits 1 with exactly the missing_re
 
 # An empty second key (a trailing comma): the key set fails it at boot,
 # without printing either key.
-if "${clean[@]}" DATABASE_URL="postgres://orders:$secret@localhost:5432/orders" WEBHOOK_KEYS="$old_key," timeout 30 "${start[@]}" >"$out" 2>&1; then
+if "${clean[@]}" DATABASE_URL="postgres://orders:$secret@localhost:5432/orders" WEBHOOK_KEYS="$old_key," "${with_timeout[@]}" 30 "${start[@]}" >"$out" 2>&1; then
   fail "started with an empty webhook key"
 fi
 [ "$(head -n 1 "$out")" = "docuconf: 1 configuration problem:" ] || fail "the output does not start with the docuconf header"
