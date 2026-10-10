@@ -22,6 +22,8 @@ export {
   type FileValues,
   type Keystore,
   type KeyAlgorithm,
+  type RejectedReload,
+  type ReloadStatus,
   type TlsMaterial,
 } from "./files/spec.ts";
 export type { CheckEnvOptions, CheckEnvResult, DocuconfEnv, DocuconfOptions } from "./env.ts";
@@ -72,6 +74,7 @@ export const getDeclaration: typeof Node.getDeclaration = () => serverOnly("getD
 export const toContract: typeof Node.toContract = () => serverOnly("toContract");
 export const onFileChange: typeof Node.onFileChange = () => serverOnly("onFileChange");
 export const reloadFile: typeof Node.reloadFile = () => serverOnly("reloadFile");
+export const reloadStatus: typeof Node.reloadStatus = () => serverOnly("reloadStatus");
 export const closeWatchers: typeof Node.closeWatchers = () => serverOnly("closeWatchers");
 export const buildContract: typeof Node.buildContract = () => serverOnly("buildContract");
 export const renderContract: typeof Node.renderContract = () => serverOnly("renderContract");

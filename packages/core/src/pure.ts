@@ -103,11 +103,13 @@ export {
   type KeyAlgorithm,
   type Keystore,
   type KeystoreFileOptions,
+  type RejectedReload,
+  type ReloadStatus,
   type SchemaAdapter,
   type TextFileOptions,
   type TlsFileOptions,
   type TlsMaterial,
 } from "./files/spec.ts";
 export { exportSession, type ExportSession } from "./session.ts";
-export { REDACTED, redactOnPrint, redactValues } from "./redact.ts";
+export { REDACTED, errorType, redactOnPrint, redactValues } from "./redact.ts";
 export { renderMarkdown } from "./docs.ts";

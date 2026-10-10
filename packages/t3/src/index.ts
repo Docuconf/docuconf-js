@@ -5,6 +5,7 @@ export {
   getDeclaration,
   onFileChange,
   reloadFile,
+  reloadStatus,
   toContract,
   type CheckEnvOptions,
   type CheckEnvResult,
@@ -27,6 +28,8 @@ export {
   type FileValues,
   type Keystore,
   type KeyAlgorithm,
+  type RejectedReload,
+  type ReloadStatus,
   type TlsMaterial,
 } from "./files/spec.ts";
 export { buildContract, renderContract, type ContractOptions } from "./contract.ts";

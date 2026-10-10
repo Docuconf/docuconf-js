@@ -390,6 +390,87 @@ Checks at boot (SPEC §11.2 item 7):
 
 `reload: "watch"` inputs are re-read when their mount directory changes (Kubernetes swaps a `..data` symlink). A reload that fails its checks is logged and the previous value kept. `env.files.<name>` always returns the current value; use `onFileChange(env, name, listener)` to react, and `tlsMaterial.attach(server)` to keep an HTTPS server on the current certificate. When `pathEnv` is set and present in the environment, the file is read from that path instead of `path`.
 
+#### Using a watched value
+
+With `watch`, docuconf swaps in a new value only after it passes the boot checks. A copy taken once at startup never
+sees it: a server built from `{ ...env.files.tls }` keeps serving the old certificate until it expires. So either read
+`env.files.<name>` on every use (it is a getter that returns the current value), or rebuild what you built from the
+value (a secure context, an HTTP agent, a pool) in a change hook.
+
+```ts
+// src/watched.ts
+import { Agent, createServer, request } from "node:https";
+import { caBundleFile, createEnv, onFileChange, reloadStatus, tlsFile } from "@docuconf/t3";
+
+export const env = createEnv({
+  name: "orders",
+  server: {},
+  files: {
+    tls: tlsFile({ path: "/etc/orders/tls", required: true, reload: "watch", description: "Certificate the API serves HTTPS with" }),
+    "payments-ca": caBundleFile({
+      path: "/etc/orders/payments-ca/ca.crt",
+      required: true,
+      reload: "watch",
+      description: "CAs that sign the payments API's certificate",
+    }),
+  },
+  runtimeEnv: process.env,
+});
+```
+
+A TLS server, kept on the current certificate by `attach`, which calls `server.setSecureContext()` after each accepted
+reload:
+
+```ts
+// A TLS server: attach() calls server.setSecureContext() after every accepted reload.
+const server = createServer({ ...env.files.tls }, (req, res) => res.end("ok"));
+env.files.tls.attach(server);
+server.listen(8443);
+```
+
+An HTTP client whose trusted CAs follow the file, by rebuilding its agent in the hook:
+
+```ts
+// An HTTP client: rebuild the agent in the hook; requests use whichever agent is current.
+let payments = new Agent({ ...env.files["payments-ca"] });
+onFileChange(env, "payments-ca", (bundle) => {
+  payments = new Agent({ ...bundle });
+});
+
+export function charge(body: string): void {
+  request("https://payments.internal/charges", { method: "POST", agent: payments }).end(body);
+}
+```
+
+`onFileChange(env, name, listener)` calls `listener` with the new value after a change passes its checks and replaces
+the old value; `tlsMaterial.onChange(listener)` does the same with the `TlsMaterial`. A rejected change calls nothing.
+Several listeners may be registered, and each call returns a function that unsubscribes. A listener that throws is
+logged by input name and error type only (`docuconf: a payments-ca reload listener failed (TypeError)`), and the other
+listeners and the reload go on. Listeners fire from a background `fs.watch` on the mount directory (debounced by
+100 ms), not on a read; a change event that leaves the file's bytes as they were replaces nothing and calls nothing.
+`reloadFile(env, name)` re-reads an input at once, as a change event would, and `closeWatchers(env)` stops watching.
+
+`reloadStatus(env, name)` reports, for a health check or a metric, a snapshot that never holds content:
+
+```ts
+// A health check or a metric: never the content.
+export function reloadHealth() {
+  const { generation, lastReloadAt, lastRejected } = reloadStatus(env, "tls");
+  return { generation, lastReloadAt: lastReloadAt?.toISOString(), rejected: lastRejected?.codes };
+}
+```
+
+| Field | |
+|---|---|
+| `generation` | 1 after boot, plus one per accepted reload. |
+| `lastReloadAt` | When the last accepted reload replaced the value (a `Date`); `undefined` until one does. |
+| `lastRejected` | The last change that failed its checks: `{ at, input, codes }`, the violation codes and never content. Cleared when a later change is accepted. |
+
+A keystore reload reuses the password read from `passwordVar` at boot: a running process's environment does not change.
+A keystore re-issued under a new password therefore fails its reload with `keystore_unreadable`, and the old keystore
+stays in use. Rotating a keystore's password needs a rollout: update the password and the keystore together, then
+restart the pods.
+
 ### Error codes
 
 `missing_required`, `invalid_type`, `out_of_range`, `pattern_mismatch`, `not_in_enum`, `invalid_scheme`, `too_few_items`, `too_many_items`, `file_missing`, `file_unreadable`, `file_too_large`, `file_malformed`, `schema_mismatch`, `certificate_invalid`, `certificate_expiring`, `certificate_name_mismatch`, `key_mismatch`, `keystore_unreadable`.

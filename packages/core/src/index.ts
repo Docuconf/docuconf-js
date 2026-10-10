@@ -16,8 +16,12 @@ export {
 export { TlsMaterialHolder, checkCaBundle, checkTls, parseCertificates, type TlsCheckOptions, type TlsParts } from "./files/tls.ts";
 export {
   checkContract,
+  closeWatchers,
   loadContract,
+  onFileChange,
   parseContract,
+  reloadFile,
+  reloadStatus,
   type ContractCheckOptions,
   type ContractCheckResult,
   type ContractDeclaration,

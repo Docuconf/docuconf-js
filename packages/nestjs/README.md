@@ -382,6 +382,103 @@ export function watch(config: ConfigService<FileInputs, true>, httpsServer: Serv
 }
 ```
 
+#### Using a watched value
+
+With `watch`, docuconf swaps in a new value only after it passes the boot checks. A copy taken once at startup never
+sees it: an `httpsOptions` object or an agent built from the value at boot keeps the old certificate until it expires.
+So either read the value on every use (`config.get("tls")` returns the current one, since file properties are
+getters; leave `ConfigModule`'s `cache` off), or rebuild what you built from it (a secure context, an HTTP agent, a
+pool) in a change hook.
+
+```ts
+// src/watched.ts
+import { Agent, type Server, request } from "node:https";
+import { Controller, Get, Injectable, type OnModuleDestroy } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { CaBundleFile, TlsFile, docuconfValidate, type CaBundle, type TlsMaterial } from "@docuconf/nestjs";
+
+export class WatchedFiles {
+  @TlsFile({ path: "/etc/orders/tls", required: true, reload: "watch", description: "Certificate the API serves HTTPS with" })
+  tls!: TlsMaterial;
+
+  @CaBundleFile({ path: "/etc/orders/payments-ca/ca.crt", required: true, reload: "watch",
+    description: "CAs that sign the payments API's certificate" })
+  paymentsCa!: CaBundle;
+}
+
+export const validate = docuconfValidate(WatchedFiles, { name: "orders" });
+```
+
+A TLS server, kept on the current certificate by `attach`, which calls `server.setSecureContext()` after each accepted
+reload (pass it `app.getHttpServer()` of an app created with `httpsOptions`):
+
+```ts
+// A TLS server: attach() calls server.setSecureContext() after every accepted reload.
+export function serveRenewedCertificates(config: ConfigService<WatchedFiles, true>, httpsServer: Server): void {
+  config.get("tls", { infer: true }).attach(httpsServer);
+}
+```
+
+An HTTP client whose trusted CAs follow the file, by rebuilding its agent in the hook:
+
+```ts
+// An HTTP client: rebuild the agent in the hook; requests use whichever agent is current.
+@Injectable()
+export class PaymentsClient implements OnModuleDestroy {
+  private agent: Agent;
+  private readonly unsubscribe: () => void;
+
+  constructor(config: ConfigService<WatchedFiles, true>) {
+    this.agent = new Agent({ ...config.get("paymentsCa", { infer: true }) });
+    this.unsubscribe = validate.onFileChange("paymentsCa", (bundle) => {
+      this.agent = new Agent({ ...(bundle as CaBundle) });
+    });
+  }
+
+  charge(body: string): void {
+    request("https://payments.internal/charges", { method: "POST", agent: this.agent }).end(body);
+  }
+
+  onModuleDestroy(): void {
+    this.unsubscribe();
+  }
+}
+```
+
+`validate.onFileChange(name, listener)` (`name` is the input name or the property) calls `listener` with the new value
+after a change passes its checks and replaces the old value; `tlsMaterial.onChange(listener)` does the same with the
+`TlsMaterial`. A rejected change calls nothing. Several listeners may be registered, and each call returns a function
+that unsubscribes. A listener that throws is logged by input name and error type only
+(`docuconf: a payments-ca reload listener failed (TypeError)`), and the other listeners and the reload go on.
+Listeners fire from a background `fs.watch` on the mount directory (debounced by 100 ms), not on a read; a change
+event that leaves the file's bytes as they were replaces nothing and calls nothing. `validate.reloadFile(name)`
+re-reads an input at once, as a change event would, and `validate.close()` stops watching.
+
+`validate.reloadStatus(name)` reports, for a health check or a metric, a snapshot that never holds content:
+
+```ts
+// A health check or a metric: never the content.
+@Controller("healthz")
+export class ReloadHealthController {
+  @Get("tls")
+  tls() {
+    const { generation, lastReloadAt, lastRejected } = validate.reloadStatus("tls");
+    return { generation, lastReloadAt: lastReloadAt?.toISOString(), rejected: lastRejected?.codes };
+  }
+}
+```
+
+| Field | |
+|---|---|
+| `generation` | 1 after boot, plus one per accepted reload. |
+| `lastReloadAt` | When the last accepted reload replaced the value (a `Date`); `undefined` until one does. |
+| `lastRejected` | The last change that failed its checks: `{ at, input, codes }`, the violation codes and never content. Cleared when a later change is accepted. |
+
+A keystore reload reuses the password read from `passwordVar` at boot: a running process's environment does not change.
+A keystore re-issued under a new password therefore fails its reload with `keystore_unreadable`, and the old keystore
+stays in use. Rotating a keystore's password needs a rollout: update the password and the keystore together, then
+restart the pods.
+
 ### Error codes
 
 `missing_required`, `invalid_type`, `out_of_range`, `pattern_mismatch`, `not_in_enum`, `invalid_scheme`, `too_few_items`, `too_many_items`, `file_missing`, `file_unreadable`, `file_too_large`, `file_malformed`, `schema_mismatch`, `certificate_invalid`, `certificate_expiring`, `certificate_name_mismatch`, `key_mismatch`, `keystore_unreadable`.

@@ -19,6 +19,8 @@ export {
   type KeyAlgorithm,
   type Keystore,
   type KeystoreFileOptions,
+  type RejectedReload,
+  type ReloadStatus,
   type TextFileOptions,
   type TlsFileOptions,
   type TlsMaterial,
