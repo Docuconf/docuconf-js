@@ -55,7 +55,7 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
-    "prepublishOnly": "npm run typecheck && npm test && npm run build",
+    "prepublishOnly": "npm run build -w @docuconf/core && npm run typecheck && npm test && npm run build",
     "smoke": "bash scripts/smoke-consumer.sh"
   },
   "peerDependencies": {
