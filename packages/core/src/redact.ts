@@ -26,4 +26,14 @@ export function redactOnPrint(target: object, view: () => Record<string, unknown
   Object.defineProperty(target, "toJSON", { value: () => view(), enumerable: false, configurable: true });
 }
 
+/**
+ * A thrown value's type, for logs: the error's class name (`TypeError`), or
+ * `typeof` for a non-object. Never its message, which could quote a secret.
+ */
+export function errorType(e: unknown): string {
+  if (typeof e !== "object" || e === null) return typeof e;
+  const name = (e as { constructor?: { name?: unknown } }).constructor?.name;
+  return typeof name === "string" && name !== "" ? name : "object";
+}
+
 export { INSPECT };

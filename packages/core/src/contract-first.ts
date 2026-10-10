@@ -13,8 +13,8 @@ import { isAbsolute, join } from "node:path";
 import { DURATION_ENCODINGS, type DurationEncoding, parseDuration } from "./duration.ts";
 import { detailsProblem } from "./doc-text.ts";
 import { INPUT_NAME, describeFiles } from "./files/declare.ts";
-import { type LoadContext, type StructuredFormat, loadFile, parseStructured } from "./files/load.ts";
-import { type FileInput, type FileType, type SchemaAdapter, makeFileInput } from "./files/spec.ts";
+import { FileState, type LoadContext, type Loaded, type StructuredFormat, loadFile, parseStructured } from "./files/load.ts";
+import { type FileInput, type FileType, type ReloadStatus, type SchemaAdapter, makeFileInput } from "./files/spec.ts";
 import { keySetDeclProblems } from "./keyset.ts";
 import { re2RegExp } from "./re2.ts";
 import { type JsonCheck, LIST_ENCODINGS, type ListEncoding, type ValueDecl, convertValue, itemLengthDeclProblems, urlProblem } from "./values.ts";
@@ -464,6 +464,10 @@ function readOverlays(given: unknown, problems: string[]): ContractOverlay[] {
     const keySeparator = o["keySeparator"];
     if (keySeparator !== ":" && keySeparator !== ".") p('keySeparator must be ":" or "."');
     if (o["reload"] !== undefined && o["reload"] !== "restart" && o["reload"] !== "watch") p('reload must be "restart" or "watch"');
+    // SPEC §11.2 items 8 and 9: an overlay feeds typed variables, which
+    // loadContract returns once; it cannot reload them, so it does not
+    // accept a promise it would not keep.
+    if (o["reload"] === "watch") p('reload "watch" is not supported in contract-first mode, which reads overlays once at boot; declare reload "restart"');
     out.push({ name, format: format as StructuredFormat, path: String(path), keySeparator: keySeparator as ":" | "." });
   }
   return out;
@@ -722,7 +726,18 @@ export function checkContract(
   env: Readonly<Record<string, string | undefined>>,
   opts: ContractCheckOptions = {},
 ): ContractCheckResult {
-  const decl = isDeclaration(contract) ? contract : parseContract(contract);
+  const { values, loaded, violations, warnings } = runContract(isDeclaration(contract) ? contract : parseContract(contract), env, opts);
+  const files: Record<string, unknown> = {};
+  for (const [name, r] of Object.entries(loaded)) files[name] = r.violations.length > 0 ? undefined : r.value;
+  return { values, files, violations, warnings };
+}
+
+/** checkContract's work, keeping what a FileState needs to reload the file inputs. */
+function runContract(
+  decl: ContractDeclaration,
+  env: Readonly<Record<string, string | undefined>>,
+  opts: ContractCheckOptions,
+): { values: Record<string, unknown>; loaded: Record<string, Loaded>; ctx: LoadContext; violations: Violation[]; warnings: string[] } {
   const values: Record<string, unknown> = {};
   const violations: Violation[] = [];
   const warnings: string[] = [];
@@ -769,15 +784,15 @@ export function checkContract(
   }
 
   const ctx: LoadContext = { env: { ...env }, values, root, adapter: contractSchemaAdapter };
-  const files: Record<string, unknown> = {};
+  const loaded: Record<string, Loaded> = {};
   for (const [name, input] of Object.entries(decl.files)) {
     const r = loadFile(name, input, ctx, opts.now);
-    files[name] = r.violations.length > 0 ? undefined : r.value;
+    loaded[name] = r;
     violations.push(...r.violations);
     const dep = input.options.deprecated;
     if (dep && r.value !== undefined && r.violations.length === 0) warn(deprecatedWarning(name, dep));
   }
-  return { values, files, violations, warnings };
+  return { values, loaded, ctx, violations, warnings };
 }
 
 /** Parses one present value and checks its constraints; undefined after reporting a violation. */
@@ -810,7 +825,11 @@ export interface LoadContractOptions extends ContractCheckOptions {
   terminationLog?: string | false;
   /** On violations, print them and exit 1 instead of throwing (except under a test runner). */
   exitOnError?: boolean;
+  /** Watch `reload: "watch"` file inputs. Default true. */
+  watch?: boolean;
 }
+
+const FILE_STATE = Symbol.for("docuconf.core.contractFiles");
 
 /**
  * Contract-first boot validation: checks the environment, the file inputs,
@@ -832,7 +851,48 @@ export function loadContract<T extends Record<string, unknown> = Record<string, 
   opts: LoadContractOptions = {},
 ): T {
   const onWarning = opts.onWarning ?? ((m: string) => console.warn(`docuconf: ${m}`));
-  const { values, files, violations } = checkContract(contract, opts.env ?? process.env, { ...opts, onWarning });
+  const decl = isDeclaration(contract) ? contract : parseContract(contract);
+  const { values, loaded, ctx, violations } = runContract(decl, opts.env ?? process.env, { ...opts, onWarning });
   if (violations.length > 0) failBoot(violations, opts);
-  return { ...values, ...files } as T;
+  const state = new FileState(decl.files, ctx);
+  const result: Record<string, unknown> = { ...values };
+  for (const [name, r] of Object.entries(loaded)) {
+    state.seed(name, r);
+    // A getter, so a reloaded value is what the app reads next.
+    Object.defineProperty(result, name, { get: () => state.get(name), enumerable: true, configurable: true });
+  }
+  Object.defineProperty(result, FILE_STATE, { value: state, enumerable: false });
+  if (opts.watch !== false) state.watch();
+  return result as T;
+}
+
+function contractState(env: object): FileState {
+  const s = (env as Record<symbol, unknown>)[FILE_STATE];
+  if (!(s instanceof FileState)) throw new TypeError("docuconf: not an object returned by loadContract");
+  return s;
+}
+
+/**
+ * Calls `listener` with the new value after a `reload: "watch"` file input
+ * of a `loadContract` result changes and passes its checks; never for a
+ * rejected change. A listener that throws is logged by input name and error
+ * type only. Returns an unsubscribe function.
+ */
+export function onFileChange(env: object, name: string, listener: (value: unknown) => void): () => void {
+  return contractState(env).onChange(name, listener);
+}
+
+/** Re-reads one file input of a `loadContract` result now, as a watch event would. Returns whether it was replaced. */
+export function reloadFile(env: object, name: string): boolean {
+  return contractState(env).reload(name);
+}
+
+/** A file input's reload status: `generation`, `lastReloadAt`, `lastRejected`. */
+export function reloadStatus(env: object, name: string): ReloadStatus {
+  return contractState(env).status(name);
+}
+
+/** Stops watching the file inputs of a `loadContract` result. */
+export function closeWatchers(env: object): void {
+  contractState(env).close();
 }

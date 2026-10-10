@@ -1,5 +1,6 @@
 import type { X509Certificate } from "node:crypto";
 import type { SecureContext, Server as TlsServer } from "node:tls";
+import type { ErrorCode } from "../violations.ts";
 
 export type FileType = "config" | "tls" | "caBundle" | "keystore" | "text" | "binary";
 export type KeyAlgorithm = "RSA" | "ECDSA" | "Ed25519";
@@ -100,6 +101,31 @@ export interface Keystore {
   readonly pfx: Buffer;
   readonly passphrase: string | undefined;
   readonly format: "pkcs12" | "jks";
+}
+
+/** A change to a file input that failed its checks and was not loaded. Never its content. */
+export interface RejectedReload {
+  /** When the change was rejected. */
+  readonly at: Date;
+  /** The input name. */
+  readonly input: string;
+  /** The violation codes, each once, in the order they were found. */
+  readonly codes: readonly ErrorCode[];
+}
+
+/**
+ * Where a file input's reloads stand, for a health check or a metric. Only
+ * `reload: "watch"` inputs reload by themselves; `reloadFile` reloads any.
+ */
+export interface ReloadStatus {
+  /** The input name. */
+  readonly input: string;
+  /** 1 after boot, plus one per accepted reload. */
+  readonly generation: number;
+  /** When the last accepted reload replaced the value; undefined until one does. */
+  readonly lastReloadAt: Date | undefined;
+  /** The last change that failed its checks; cleared when a later change is accepted. */
+  readonly lastRejected: RejectedReload | undefined;
 }
 
 /** A declared file input. Create one with configFile(), tlsFile() and the other helpers. */

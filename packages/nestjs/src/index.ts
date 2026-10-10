@@ -36,6 +36,8 @@ export {
   type ErrorCode,
   type KeyAlgorithm,
   type Keystore,
+  type RejectedReload,
+  type ReloadStatus,
   type TlsMaterial,
   type Violation,
 } from "@docuconf/core";

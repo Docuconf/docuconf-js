@@ -1,6 +1,7 @@
 import { X509Certificate, createPrivateKey } from "node:crypto";
 import { type SecureContext, createSecureContext } from "node:tls";
 import { parseDuration } from "../duration.ts";
+import { errorType } from "../redact.ts";
 import type { ErrorCode } from "../violations.ts";
 import type { CaBundle, KeyAlgorithm, TlsMaterial } from "./spec.ts";
 
@@ -138,9 +139,12 @@ export class TlsMaterialHolder {
   private ctx: SecureContext | undefined;
   private readonly listeners = new Set<(m: TlsMaterial) => void>();
   readonly material: TlsMaterial;
+  /** The input name, for logs. */
+  private readonly name: string;
 
-  constructor(parts: TlsParts) {
+  constructor(parts: TlsParts, name = "tls") {
     this.parts = parts;
+    this.name = name;
     const self = this;
     const m = {} as TlsMaterial;
     // cert, key and ca are enumerable, so `{ ...material }` is valid
@@ -183,7 +187,8 @@ export class TlsMaterialHolder {
       try {
         l(this.material);
       } catch (e) {
-        console.error("docuconf: TLS reload listener failed:", e);
+        // The input name and the error's type only: a message could quote key material.
+        console.error(`docuconf: a ${this.name} reload listener failed (${errorType(e)})`);
       }
     }
   }

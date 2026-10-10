@@ -11,6 +11,7 @@ import {
   type FileInputs,
   type FileValues,
   type LoadContext,
+  type ReloadStatus,
   type Violation,
   DocuconfDeclarationError,
   callerFile,
@@ -315,7 +316,9 @@ export function toContract(env: object, opts?: ContractOptions): string {
 
 /**
  * Calls `listener` with the new value after a `reload: "watch"` file input
- * changes and passes its checks. Returns an unsubscribe function.
+ * changes and passes its checks; never for a rejected change. Several
+ * listeners are allowed; one that throws is logged by input name and error
+ * type only, and the others still run. Returns an unsubscribe function.
  */
 export function onFileChange<TFiles extends FileInputs, K extends keyof TFiles & string>(
   env: { readonly files: FileValues<TFiles> },
@@ -328,6 +331,16 @@ export function onFileChange<TFiles extends FileInputs, K extends keyof TFiles &
 /** Re-reads one file input now, as a watch event would. Returns whether it was replaced. */
 export function reloadFile(env: object, name: string): boolean {
   return stateOf(env).reload(name);
+}
+
+/**
+ * A file input's reload status, for a health check or a metric:
+ * `generation` (1 after boot, plus one per accepted reload),
+ * `lastReloadAt`, and `lastRejected` (`{ at, input, codes }`, never
+ * content; cleared when a later change is accepted).
+ */
+export function reloadStatus<TFiles extends FileInputs>(env: { readonly files: FileValues<TFiles> }, name: keyof TFiles & string): ReloadStatus {
+  return stateOf(env).status(name);
 }
 
 /** Stops watching file inputs. */

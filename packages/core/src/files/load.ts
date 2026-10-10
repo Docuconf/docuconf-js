@@ -1,12 +1,14 @@
+import { createHash } from "node:crypto";
 import { type FSWatcher, readFileSync, statSync, watch } from "node:fs";
 import { dirname, isAbsolute, join } from "node:path";
 import { createSecureContext } from "node:tls";
 import { parse as parseToml } from "smol-toml";
 import { parseDocument } from "yaml";
 import { re2RegExp } from "../re2.ts";
+import { errorType } from "../redact.ts";
 import { parseJsonExact } from "../vars.ts";
 import { type ErrorCode, type Violation, formatViolations } from "../violations.ts";
-import type { FileInput, Keystore, KeyAlgorithm, SchemaAdapter } from "./spec.ts";
+import type { FileInput, Keystore, KeyAlgorithm, RejectedReload, ReloadStatus, SchemaAdapter } from "./spec.ts";
 import { type Report, TlsMaterialHolder, checkCaBundle, checkTls } from "./tls.ts";
 
 export interface LoadContext {
@@ -109,6 +111,22 @@ const utf8 = new TextDecoder("utf-8", { fatal: true });
 export interface Loaded {
   value: unknown;
   violations: Violation[];
+  /**
+   * A SHA-256 of the bytes read (for TLS, tls.crt, tls.key and ca.crt), so
+   * a reload can tell an unchanged file from a change. Undefined when
+   * nothing was read.
+   */
+  digest?: string | undefined;
+}
+
+/** A SHA-256 over byte strings, each length-prefixed so boundaries count. */
+function digestOf(...parts: Array<Buffer | undefined>): string {
+  const h = createHash("sha256");
+  for (const p of parts) {
+    h.update(p === undefined ? "-" : `${p.length}:`);
+    if (p !== undefined) h.update(p);
+  }
+  return h.digest("hex");
 }
 
 /** Reads and checks one file input (SPEC §11.2 item 7). */
@@ -156,12 +174,19 @@ export function loadFile(name: string, input: FileInput, ctx: LoadContext, now =
       report,
       now,
     );
-    return { value: parts, violations };
+    return { value: parts, violations, digest: digestOf(cert, key, ca instanceof Buffer ? ca : undefined) };
   }
 
   const data = readChecked(path, path, o.maxSize, report);
   if (data === "absent") return missing(path);
   if (data === "failed") return { value: undefined, violations };
+  const loaded = loadContent(input, path, data, ctx, violations, report);
+  return { ...loaded, digest: digestOf(data) };
+}
+
+/** Checks one file's content, read from `path`. */
+function loadContent(input: FileInput, path: string, data: Buffer, ctx: LoadContext, violations: Violation[], report: Report): Loaded {
+  const o = input.options;
 
   switch (input.type) {
     case "binary":
@@ -241,11 +266,25 @@ export function loadFile(name: string, input: FileInput, ctx: LoadContext, now =
   return { value: undefined, violations };
 }
 
-/** Holds the current value of each file input and re-reads `reload: watch` inputs. */
+/** A reload status that FileState updates in place. */
+interface MutableStatus {
+  generation: number;
+  lastReloadAt: Date | undefined;
+  lastRejected: RejectedReload | undefined;
+  digest: string | undefined;
+}
+
+/**
+ * Holds the current value of each file input and re-reads `reload: watch`
+ * inputs. A reload reuses the LoadContext of boot, so a keystore is opened
+ * with the password read at boot: the environment does not change in a
+ * running process.
+ */
 export class FileState {
   private readonly values = new Map<string, unknown>();
   private readonly tls = new Map<string, TlsMaterialHolder>();
   private readonly listeners = new Map<string, Set<(v: unknown) => void>>();
+  private readonly statuses = new Map<string, MutableStatus>();
   private readonly watchers: FSWatcher[] = [];
   readonly proxy: Record<string, unknown>;
   private readonly inputs: Record<string, FileInput>;
@@ -257,8 +296,15 @@ export class FileState {
     const proxy: Record<string, unknown> = {};
     for (const name of Object.keys(inputs)) {
       Object.defineProperty(proxy, name, { enumerable: true, get: () => this.get(name) });
+      this.statuses.set(name, { generation: 1, lastReloadAt: undefined, lastRejected: undefined, digest: undefined });
     }
     this.proxy = Object.freeze(proxy);
+  }
+
+  private input(name: string): FileInput {
+    const input = Object.hasOwn(this.inputs, name) ? this.inputs[name] : undefined;
+    if (!input) throw new TypeError(`docuconf: no file input named ${name}`);
+    return input;
   }
 
   get(name: string): unknown {
@@ -272,17 +318,39 @@ export class FileState {
     if (input.type === "tls" && value !== undefined) {
       const holder = this.tls.get(name);
       if (holder) holder.update(value as ConstructorParameters<typeof TlsMaterialHolder>[0]);
-      else this.tls.set(name, new TlsMaterialHolder(value as ConstructorParameters<typeof TlsMaterialHolder>[0]));
+      else this.tls.set(name, new TlsMaterialHolder(value as ConstructorParameters<typeof TlsMaterialHolder>[0], name));
     } else {
       this.values.set(name, value);
     }
   }
 
+  /**
+   * Stores a value loaded at boot, with the digest of what was read, so
+   * the first reload can tell whether the file changed.
+   */
+  seed(name: string, loaded: Loaded): void {
+    this.set(name, loaded.violations.length > 0 ? undefined : loaded.value);
+    this.statuses.get(name)!.digest = loaded.violations.length > 0 ? undefined : loaded.digest;
+  }
+
+  /**
+   * Calls `listener` with the new value after a reload replaced it. Never
+   * for a rejected change. A listener that throws is logged, by input name
+   * and error type only, and the others still run. Returns an unsubscribe.
+   */
   onChange(name: string, listener: (v: unknown) => void): () => void {
+    this.input(name);
     let set = this.listeners.get(name);
     if (!set) this.listeners.set(name, (set = new Set()));
     set.add(listener);
     return () => set.delete(listener);
+  }
+
+  /** Where `name`'s reloads stand: generation, last accepted reload, last rejected change. A snapshot. */
+  status(name: string): ReloadStatus {
+    this.input(name);
+    const s = this.statuses.get(name)!;
+    return Object.freeze({ input: name, generation: s.generation, lastReloadAt: s.lastReloadAt, lastRejected: s.lastRejected });
   }
 
   /**
@@ -318,23 +386,45 @@ export class FileState {
       const r = loadFile(name, input, this.ctx);
       violations.push(...r.violations);
       this.set(name, r.value);
+      this.statuses.get(name)!.digest = r.violations.length > 0 ? undefined : r.digest;
     }
     return violations;
   }
 
+  /**
+   * Re-reads `name` and checks it as at boot. A change that passes replaces
+   * the value, adds one to the generation and calls the listeners; one that
+   * fails is logged (codes and messages, never content), recorded as
+   * `lastRejected`, and the previous value is kept. An unchanged file (same
+   * bytes) replaces nothing. Returns whether the value was replaced.
+   */
   reload(name: string): boolean {
-    const r = loadFile(name, this.inputs[name]!, this.ctx);
+    const r = loadFile(name, this.input(name), this.ctx);
+    const status = this.statuses.get(name)!;
     if (r.violations.length > 0) {
+      const codes = [...new Set(r.violations.map((v) => v.code))];
+      status.lastRejected = Object.freeze({ at: new Date(), input: name, codes: Object.freeze(codes) });
       console.error(`docuconf: keeping the previous ${name} after a failed reload\n${formatViolations(r.violations)}`);
       return false;
     }
     if (r.value === undefined) return false;
+    // The file as it was when last accepted: nothing changed, though a rejected change is undone.
+    if (r.digest !== undefined && r.digest === status.digest) {
+      status.lastRejected = undefined;
+      return false;
+    }
+    status.generation++;
+    status.lastReloadAt = new Date();
+    status.lastRejected = undefined;
+    status.digest = r.digest;
     this.set(name, r.value);
+    const value = this.get(name);
     for (const l of this.listeners.get(name) ?? []) {
       try {
-        l(this.get(name));
+        l(value);
       } catch (e) {
-        console.error(`docuconf: ${name} reload listener failed:`, e);
+        // The input name and the error's type only: a message could quote the content.
+        console.error(`docuconf: a ${name} reload listener failed (${errorType(e)})`);
       }
     }
     return true;

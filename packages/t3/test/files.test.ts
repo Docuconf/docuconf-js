@@ -15,6 +15,7 @@ import {
   keystoreFile,
   onFileChange,
   reloadFile,
+  reloadStatus,
   secret,
   textFile,
   tlsFile,
@@ -377,5 +378,29 @@ describe("reload: watch", () => {
     writeFileSync(join(fr.root, "/etc/w/settings/s.json"), '{"level":2}');
     await expect(changed).resolves.toEqual({ level: 2 });
     expect(env.files.settings).toEqual({ level: 2 });
+  });
+
+  it("reports the reload status, and a throwing listener does not stop the others", () => {
+    const { fr, env } = setup(false);
+    expect(reloadStatus(env, "serving-tls")).toEqual({ input: "serving-tls", generation: 1, lastReloadAt: undefined, lastRejected: undefined });
+    const seen: unknown[] = [];
+    onFileChange(env, "settings", () => {
+      throw new TypeError("level 2");
+    });
+    onFileChange(env, "settings", (s) => seen.push(s));
+    const logged: string[] = [];
+    const errors = vi.spyOn(console, "error").mockImplementation((m: unknown) => void logged.push(String(m)));
+    fr.write("/etc/w/settings/s.json", '{"level":2}');
+    expect(reloadFile(env, "settings")).toBe(true);
+    fr.write("/etc/w/settings/s.json", '{"level":"high"}');
+    expect(reloadFile(env, "settings")).toBe(false);
+    errors.mockRestore();
+    expect(seen).toEqual([{ level: 2 }]);
+    expect(env.files.settings).toEqual({ level: 2 });
+    expect(logged[0]).toBe("docuconf: a settings reload listener failed (TypeError)");
+    const status = reloadStatus(env, "settings");
+    expect(status.generation).toBe(2);
+    expect(status.lastReloadAt).toBeInstanceOf(Date);
+    expect(status.lastRejected).toEqual({ at: expect.any(Date), input: "settings", codes: ["schema_mismatch"] });
   });
 });

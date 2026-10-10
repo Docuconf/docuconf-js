@@ -2,6 +2,7 @@ import {
   DocuconfDeclarationError,
   FileState,
   type LoadContext,
+  type ReloadStatus,
   type Violation,
   exitWith,
   exportSession,
@@ -65,10 +66,20 @@ export interface DocuconfValidate<T extends object> {
   readonly declaration: NestDeclaration;
   /**
    * Calls `listener` with the new value after a `reload: "watch"` file input
-   * changes and passes its checks. `name` is the input name or its property.
-   * Returns an unsubscribe function.
+   * changes and passes its checks; never for a rejected change. `name` is
+   * the input name or its property. Several listeners are allowed; one that
+   * throws is logged by input name and error type only, and the others
+   * still run. Returns an unsubscribe function.
    */
   onFileChange(name: string, listener: (value: unknown) => void): () => void;
+  /**
+   * A file input's reload status, for a health check or a metric:
+   * `generation` (1 after boot, plus one per accepted reload),
+   * `lastReloadAt`, and `lastRejected` (`{ at, input, codes }`, never
+   * content; cleared when a later change is accepted). `name` is the input
+   * name or its property.
+   */
+  reloadStatus(name: string): ReloadStatus;
   /** Re-reads one file input now, as a watch event would. Returns whether it was replaced. */
   reloadFile(name: string): boolean;
   /** Stops watching file inputs. */
@@ -210,6 +221,7 @@ export function docuconfValidate<T extends object>(cls: new () => T, opts: Docuc
     declaration: decl,
     onFileChange: (name: string, listener: (value: unknown) => void) => current().onChange(inputName(name), listener),
     reloadFile: (name: string) => current().reload(inputName(name)),
+    reloadStatus: (name: string) => current().status(inputName(name)),
     close: () => state?.close(),
     check,
   }) as DocuconfValidate<T>;

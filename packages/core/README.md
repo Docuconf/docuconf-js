@@ -69,6 +69,58 @@ stands for and checked like an env value; a missing overlay is fine, and one tha
 is `file_malformed` for the overlay's name. A **deprecated** input that is set loads and is checked as usual, and is
 logged through `onWarning` with its name and message, never its value.
 
+### Reloading file inputs
+
+A file input declared `reload: "watch"` is re-read when its mount directory changes (Kubernetes swaps a `..data`
+symlink), checked as at boot, and swapped in only if it passes; a change that fails is logged, codes and messages but
+never content, and the previous value stays. Each file input of the result is a getter that returns the current
+value, so read it on every use, or rebuild what you built from it (a secure context, an HTTP agent, a pool) in a change
+hook. A copy taken once at startup never sees a renewed certificate. The option `watch: false` turns watching off.
+
+A TLS server, kept on the current certificate by `attach`, which calls `server.setSecureContext()` after each accepted
+reload:
+
+```ts
+// A TLS server: attach() calls server.setSecureContext() after every accepted reload.
+const tls = env["serving-tls"] as TlsMaterial;
+const server: Server = createServer({ ...tls }, (req, res) => res.end("ok"));
+tls.attach(server);
+server.listen(8443);
+```
+
+An HTTP client whose trusted CAs follow the file, by rebuilding its agent in the hook:
+
+```ts
+// An HTTP client: rebuild the agent in the hook; requests use whichever agent is current.
+let payments = new Agent({ ...(env["payments-ca"] as CaBundle) });
+onFileChange(env, "payments-ca", (bundle) => {
+  payments = new Agent({ ...(bundle as CaBundle) });
+});
+request("https://payments.internal/charges", { method: "POST", agent: payments }).end("{}");
+```
+
+`onFileChange(env, name, listener)` calls `listener` with the new value after a change passes its checks and replaces
+the old value, never for a rejected one; several listeners may be registered, and each call returns a function that
+unsubscribes. A listener that throws is logged by input name and error type only, and the other listeners and the
+reload go on. Listeners fire from a background `fs.watch` (debounced by 100 ms), not on a read; a change event that
+leaves the file's bytes as they were calls nothing. `reloadFile(env, name)` re-reads an input at once, and
+`closeWatchers(env)` stops watching. `reloadStatus(env, name)` returns a snapshot for a health check or a metric:
+`generation` (1 after boot, plus one per accepted reload), `lastReloadAt` (a `Date`, `undefined` until a reload is
+accepted) and `lastRejected` (`{ at, input, codes }`, the last change that failed, with its violation codes and never
+content; cleared when a later change is accepted):
+
+```ts
+// A health check or a metric: never the content.
+const { generation, lastReloadAt, lastRejected } = reloadStatus(env, "serving-tls");
+console.log(generation, lastReloadAt?.toISOString(), lastRejected?.codes);
+```
+
+A keystore reload reuses the password read from `passwordVar` at boot, since a running process's environment does not
+change: a keystore re-issued under a new password fails its reload with `keystore_unreadable` and the old one stays.
+Rotating a keystore's password needs a rollout. An overlay feeds variables, which `loadContract` reads once, so a
+contract that declares an overlay `reload: "watch"` is rejected with a `DocuconfDeclarationError` naming the overlay;
+declare it `restart`, and roll the pods when it changes.
+
 A `json` variable with a `schema` is checked against it with [Ajv](https://ajv.js.org), a dependency of this package,
 as JSON Schema draft 2020-12: a value that does not match is `schema_mismatch`, with one violation per problem. Patterns
 are RE2, as elsewhere in the contract; string lengths count code points; `format` is an annotation only. A schema with
