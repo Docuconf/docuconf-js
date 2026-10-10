@@ -4,6 +4,34 @@ All notable changes to @docuconf/t3 are documented here. Entries after 0.1.0 are
 [release-please](https://github.com/googleapis/release-please) from Conventional Commit messages; see
 [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
+## [0.2.0](https://github.com/Docuconf/docuconf-js/compare/v0.1.0...v0.2.0) (2026-10-10)
+
+
+### Features
+
+* beta suite (keySet, deprecated rules, strict parsing, files, profiles, overlays) ([6a60cf7](https://github.com/Docuconf/docuconf-js/commit/6a60cf7b99f4e11e76cddfdd0b1810a00813d0a8))
+* beta suite (keySet, deprecated rules, strict parsing, files, profiles, overlays) ([a1098e6](https://github.com/Docuconf/docuconf-js/commit/a1098e6063e727110585ffa5a7dc6d99a21406bf))
+* devX fixes (Next.js boot validation, browser build, exitOnError, testing API) ([8b65a80](https://github.com/Docuconf/docuconf-js/commit/8b65a80ad9a6c50c7ca844a09ccbd46d474bbf0b))
+* export description and details from doc comments ([2c816ec](https://github.com/Docuconf/docuconf-js/commit/2c816ece93f1b37ddd696f3519ee88188511728c))
+* export description and details from doc comments ([ecc7f55](https://github.com/Docuconf/docuconf-js/commit/ecc7f554d550989c50199357f5ad29bda8d57891))
+* full conformance (no skipped capability tags) ([8d2c3aa](https://github.com/Docuconf/docuconf-js/commit/8d2c3aa619ba1235e857f86a3f86d76ec0ebe913))
+* maxLength on url/json and item length limits on string lists ([5066e33](https://github.com/Docuconf/docuconf-js/commit/5066e33e5270e06e8978491fbaa0461c4b8f5f71))
+* maxLength on url/json and item length limits on string lists ([81f1a53](https://github.com/Docuconf/docuconf-js/commit/81f1a5334bb773fe3c6b4f8a4d451d0fa686ede1))
+* reload hooks and status; one empty-key message ([7b34813](https://github.com/Docuconf/docuconf-js/commit/7b3481301d40ab2ba1945eceb35725060e527aca))
+* reload hooks and status; one empty-key message ([48af8e5](https://github.com/Docuconf/docuconf-js/commit/48af8e5a8a2df4deea68411d1e042cda0582ad5d))
+
+
+### Documentation
+
+* link docuconf.dev ([67f29c5](https://github.com/Docuconf/docuconf-js/commit/67f29c5f5526a1d7a9176654e26f091775e64c51))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @docuconf/core bumped from ^0.1.0 to ^0.2.0
+
 ## 0.1.0
 
 First version: typed configuration contracts for [T3 Env](https://env.t3.gg) with Zod 4, implementing spec
