@@ -1,6 +1,6 @@
 {
   "name": "@docuconf/t3",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Typed configuration contracts for T3 Env: export your env schema as a docuconf CUE contract and validate env vars and files at boot.",
   "keywords": [
     "env",
@@ -63,7 +63,7 @@
     "zod": "^4.1.0"
   },
   "dependencies": {
-    "@docuconf/core": "^0.1.0"
+    "@docuconf/core": "^0.2.0"
   },
   "devDependencies": {
     "@t3-oss/env-core": "^0.13.11",

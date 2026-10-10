@@ -1,6 +1,6 @@
 {
   "name": "@docuconf/nestjs",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Typed configuration contracts for NestJS: export your @nestjs/config class-validator schema as a docuconf CUE contract and validate env vars and files at boot.",
   "keywords": [
     "nestjs",
@@ -61,7 +61,7 @@
     "class-validator": ">=0.14.0"
   },
   "dependencies": {
-    "@docuconf/core": "^0.1.0"
+    "@docuconf/core": "^0.2.0"
   },
   "devDependencies": {
     "@nestjs/common": "^12.1.2",
