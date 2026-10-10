@@ -1,4 +1,3 @@
-import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import "reflect-metadata";
 import { Type } from "class-transformer";
@@ -6,6 +5,7 @@ import { ArrayMinSize, IsArray, IsInt, IsOptional, IsString, Matches, ValidateNe
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { type Issued, days, fileRoot, issue, pkcs12 } from "../../core/test/support/certs.ts";
+import { writeUntilChanged } from "../../core/test/support/watch.ts";
 import {
   BinaryFile,
   type CaBundle,
@@ -273,8 +273,7 @@ describe("reload: watch", () => {
     const { fr, v, env } = setup(true);
     expect(env.settings).toEqual({ level: 1 });
     const changed = new Promise((resolve) => v.onFileChange("settings", resolve));
-    writeFileSync(join(fr.root, "/etc/w/settings/s.json"), '{"level":2}');
-    await expect(changed).resolves.toEqual({ level: 2 });
+    await expect(writeUntilChanged(join(fr.root, "/etc/w/settings/s.json"), '{"level":2}', changed)).resolves.toEqual({ level: 2 });
     expect(env.settings).toEqual({ level: 2 });
   });
 
