@@ -3,7 +3,6 @@
  * the keystore password a reload reuses, and contract-first mode reloading
  * its file inputs. Also the one wording of an empty key.
  */
-import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import {
@@ -19,6 +18,7 @@ import {
   reloadStatus,
 } from "../src/index.ts";
 import { type Issued, days, fileRoot, issue, pkcs12 } from "./support/certs.ts";
+import { writeUntilChanged } from "./support/watch.ts";
 
 const head = { apiVersion: "docuconf.dev/v1alpha1", kind: "ConfigContract", metadata: { name: "t" } };
 
@@ -241,8 +241,7 @@ describe("contract-first mode", () => {
   it("re-reads a watched file when it changes on disk", async () => {
     const { fr, env } = boot(true);
     const changed = new Promise((resolve) => onFileChange(env, "settings", resolve));
-    writeFileSync(join(fr.root, "/etc/app/settings/s.json"), '{"level":5}');
-    await expect(changed).resolves.toEqual({ level: 5 });
+    await expect(writeUntilChanged(join(fr.root, "/etc/app/settings/s.json"), '{"level":5}', changed)).resolves.toEqual({ level: 5 });
     expect(env["settings"]).toEqual({ level: 5 });
     expect(reloadStatus(env, "settings").generation).toBe(2);
   });

@@ -1,4 +1,4 @@
-import { chmodSync, writeFileSync } from "node:fs";
+import { chmodSync } from "node:fs";
 import { request, createServer } from "node:https";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -21,6 +21,7 @@ import {
   tlsFile,
 } from "../src/index.ts";
 import { type Issued, days, fileRoot, issue, pkcs12 } from "../../core/test/support/certs.ts";
+import { writeUntilChanged } from "../../core/test/support/watch.ts";
 
 let ca: Issued;
 let otherCa: Issued;
@@ -375,8 +376,7 @@ describe("reload: watch", () => {
     const { fr, env } = setup(true);
     expect(env.files.settings).toEqual({ level: 1 });
     const changed = new Promise((resolve) => onFileChange(env, "settings", resolve));
-    writeFileSync(join(fr.root, "/etc/w/settings/s.json"), '{"level":2}');
-    await expect(changed).resolves.toEqual({ level: 2 });
+    await expect(writeUntilChanged(join(fr.root, "/etc/w/settings/s.json"), '{"level":2}', changed)).resolves.toEqual({ level: 2 });
     expect(env.files.settings).toEqual({ level: 2 });
   });
 
