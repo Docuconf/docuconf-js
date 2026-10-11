@@ -38,7 +38,9 @@ cd "$work/app"
 npm install --silent --no-fund --no-audit "../$core" "../$t3"
 echo "smoke: ok: installed @docuconf/core and @docuconf/t3 with next $(node -p 'require("next/package.json").version')"
 
-npx docuconf-t3 export src/env.ts --check contract.cue || fail "contract.cue is out of date"
+# Ignoring metadata.generator.version, which release PRs bump.
+npx docuconf-t3 export src/env.ts --out "$work/fresh.cue" || fail "docuconf-t3 export failed"
+"$root/scripts/check-generated.sh" --files contract.cue "$work/fresh.cue" || fail "contract.cue is out of date"
 echo "smoke: ok: contract.cue is up to date (export follows the @/* alias)"
 
 # Only what Next.js inlines into the browser bundle; no server configuration.

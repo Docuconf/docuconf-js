@@ -134,7 +134,9 @@ jobs:
       # next start with valid and invalid configuration, a client component.
       - name: Next.js example
         run: |
-          node packages/t3/dist/bin.js export examples/next-t3/src/env.ts --check examples/next-t3/contract.cue
+          # Ignoring metadata.generator.version, which release PRs bump.
+          node packages/t3/dist/bin.js export examples/next-t3/src/env.ts --out "$RUNNER_TEMP/next-t3.cue"
+          scripts/check-generated.sh --files examples/next-t3/contract.cue "$RUNNER_TEMP/next-t3.cue"
           mkdir -p docuconf-go/spec/cue/next-t3 && cp examples/next-t3/contract.cue docuconf-go/spec/cue/next-t3/
           (cd docuconf-go/spec/cue && cue vet -c ./next-t3)
           bash examples/next-t3/smoke.sh
