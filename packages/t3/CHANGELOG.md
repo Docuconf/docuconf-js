@@ -4,6 +4,21 @@ All notable changes to @docuconf/t3 are documented here. Entries after 0.1.0 are
 [release-please](https://github.com/googleapis/release-please) from Conventional Commit messages; see
 [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
+## [0.2.1](https://github.com/Docuconf/docuconf-js/compare/v0.2.0...v0.2.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **release:** spell the repository's owner as GitHub does, for npm provenance ([4a22c1e](https://github.com/Docuconf/docuconf-js/commit/4a22c1eeeebd9e8fc618b3ab17f9c21494dd56c5))
+* **release:** spell the repository's owner as GitHub does, for npm provenance ([cd69d6b](https://github.com/Docuconf/docuconf-js/commit/cd69d6b177d962f4c3ab65d887c90c4dd1dfe9a8))
+
+
+### Dependencies
+
+* The following workspace dependencies were updated
+  * dependencies
+    * @docuconf/core bumped from ^0.2.0 to ^0.2.1
+
 ## [0.2.0](https://github.com/Docuconf/docuconf-js/compare/v0.1.0...v0.2.0) (2026-10-10)
 
 
