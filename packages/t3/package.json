@@ -15,10 +15,10 @@
   "homepage": "https://docuconf.dev/languages/typescript/",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/docuconf/docuconf-js.git",
+    "url": "git+https://github.com/Docuconf/docuconf-js.git",
     "directory": "packages/t3"
   },
-  "bugs": "https://github.com/docuconf/docuconf-js/issues",
+  "bugs": "https://github.com/Docuconf/docuconf-js/issues",
   "type": "module",
   "exports": {
     ".": {
