@@ -24,7 +24,7 @@ jobs:
       matrix:
         node: [22, 24, 26]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # The contract meta-schema (spec/cue) and the conformance suite
       # (conformance/cases.json) live in docuconf-go; the export tests vet
@@ -39,18 +39,18 @@ jobs:
           elif [ -n "$INPUT_REF" ]; then echo "ref=$INPUT_REF" >> "$GITHUB_OUTPUT"
           else echo "ref=$(tr -d '[:space:]' < .github/docuconf-go.ref)" >> "$GITHUB_OUTPUT"; fi
       - name: Check out docuconf-go
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: docuconf/docuconf-go
           path: docuconf-go
           ref: ${{ steps.dcref.outputs.ref }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
           cache: npm
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v6
         with:
           go-version: stable
           cache: false
