@@ -4,6 +4,14 @@ All notable changes to @docuconf/core are documented here. Entries after 0.1.0 a
 [release-please](https://github.com/googleapis/release-please) from Conventional Commit messages; see
 [CONTRIBUTING.md](../../CONTRIBUTING.md).
 
+## [0.2.1](https://github.com/Docuconf/docuconf-js/compare/core-v0.2.0...core-v0.2.1) (2026-11-06)
+
+
+### Bug Fixes
+
+* **release:** spell the repository's owner as GitHub does, for npm provenance ([4a22c1e](https://github.com/Docuconf/docuconf-js/commit/4a22c1eeeebd9e8fc618b3ab17f9c21494dd56c5))
+* **release:** spell the repository's owner as GitHub does, for npm provenance ([cd69d6b](https://github.com/Docuconf/docuconf-js/commit/cd69d6b177d962f4c3ab65d887c90c4dd1dfe9a8))
+
 ## [0.2.0](https://github.com/Docuconf/docuconf-js/compare/core-v0.1.0...core-v0.2.0) (2026-10-10)
 
 
