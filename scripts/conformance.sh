@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs only the docuconf-go-facing checks against a given docuconf-go checkout:
 # the shared conformance suite (@docuconf/core, every case run, none
-# skipped), the shared export fixture compared with conformance/export/golden.cue
+# skipped, then cases.pending.json when it exists), the shared export fixture compared with conformance/export/golden.cue
 # by `docuconf conformance export` (@docuconf/t3), and the export tests that
 # `cue vet` exported contracts against the meta-schema (@docuconf/t3,
 # @docuconf/nestjs). Not the full suite.

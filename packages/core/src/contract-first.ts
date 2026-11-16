@@ -6,7 +6,10 @@
  * contract written for a host that reads config files may also declare
  * profiles and overlays (SPEC §4.4, §4.7); they are layered as that host
  * would: the variable's default, then the selected profile's default, then
- * an overlay, then the environment.
+ * an overlay, then the environment. Conditional requirements (SPEC
+ * §4.2.1) and roles (SPEC §4.9) decide which inputs this boot requires;
+ * included fragments (SPEC §4.8) are read for provenance only, since
+ * their variables are inline.
  */
 import { readFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
@@ -58,6 +61,53 @@ export interface ContractVar extends ValueDecl {
   configKey?: string | undefined;
   /** Staged removal (SPEC §4.2): a set value loads, with a warning. */
   deprecated?: { message: string; replacedBy?: string } | undefined;
+  /** Required only while another variable has one value (SPEC §4.2.1). */
+  requiredIf?: RequiredIf | undefined;
+  /** The roles that use it (SPEC §4.9); every role when absent. */
+  roles?: readonly string[] | undefined;
+}
+
+/** The variable that names a workload's role (SPEC §4.9). */
+export const ROLE_VAR = "DOCUCONF_ROLE";
+
+/** A role name (SPEC §4.9): a DNS label. */
+const ROLE_NAME = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/;
+/** A fragment reference (SPEC §4.8): name@major. */
+const FRAGMENT_REF = /^[a-z][a-z0-9-]*@[1-9][0-9]*$/;
+
+/**
+ * A condition that makes an input required (SPEC §4.2.1): while `variable`
+ * has `value`, a string, an integer (a bigint beyond 2^53) or a boolean.
+ */
+export class RequiredIf {
+  readonly variable: string;
+  readonly value: string | number | bigint | boolean;
+
+  constructor(variable: string, value: string | number | bigint | boolean) {
+    this.variable = variable;
+    this.value = value;
+  }
+
+  /** Whether a variable's loaded value is the condition's value. */
+  holdsFor(loaded: unknown): boolean {
+    const want = this.value;
+    if (typeof want === "number" || typeof want === "bigint") {
+      const isWhole = (typeof loaded === "number" && Number.isInteger(loaded)) || typeof loaded === "bigint";
+      return isWhole && BigInt(loaded) === BigInt(want);
+    }
+    return loaded === want;
+  }
+
+  /** The condition as messages write it, the value as JSON: `LOG_FORMAT is "json"`. */
+  toString(): string {
+    return `${this.variable} is ${typeof this.value === "string" ? JSON.stringify(this.value) : String(this.value)}`;
+  }
+}
+
+/** A file input's requiredIf and roles, read from the contract. */
+export interface ContractFileRules {
+  requiredIf?: RequiredIf | undefined;
+  roles?: readonly string[] | undefined;
 }
 
 /** A contract's profiles (SPEC §4.4), with each profile default typed. */
@@ -88,6 +138,12 @@ export interface ContractDeclaration {
   profiles: ContractProfiles | undefined;
   /** Sorted by name. */
   overlays: readonly ContractOverlay[];
+  /** The roles the image runs as (SPEC §4.9), when the contract declares them. */
+  roles: readonly string[] | undefined;
+  /** The well-known fragments included (SPEC §4.8), as `name@major`. Their variables are already in `vars`. */
+  includes: readonly string[];
+  /** Each file input's requiredIf and roles, by input name. */
+  fileRules: Readonly<Record<string, ContractFileRules>>;
 }
 
 type Json = Record<string, unknown>;
@@ -127,8 +183,9 @@ const contractSchemaAdapter: SchemaAdapter = {
 /**
  * Reads a contract exported as JSON (an object, or its JSON text). Fields
  * the meta-schema defaults (`required`, `secret`, `encoding`, `separator`)
- * may be omitted. Reads variables, file inputs, profiles and overlays.
- * Throws DocuconfDeclarationError listing every problem.
+ * may be omitted. Reads variables, file inputs, profiles, overlays, roles,
+ * conditional requirements and included fragments. Throws
+ * DocuconfDeclarationError listing every problem.
  */
 export function parseContract(contract: unknown): ContractDeclaration {
   // Integers beyond 2^53 (an int's min, max or default) are read exactly.
@@ -145,11 +202,143 @@ export function parseContract(contract: unknown): ContractDeclaration {
     const v = readVar(name, raw, (m) => problems.push(`${name}: ${m}`));
     if (v) vars.set(name, v);
   }
-  const files = readFiles(doc["files"], vars, problems);
+  const fileRules: Record<string, ContractFileRules> = {};
+  const files = readFiles(doc["files"], vars, fileRules, problems);
   const profiles = doc["profiles"] === undefined ? undefined : readProfiles(doc["profiles"], vars, problems);
   const overlays = doc["overlays"] === undefined ? [] : readOverlays(doc["overlays"], problems);
+  const includes = readIncludes(doc["includes"], problems);
+  const roles = readRoles(doc["roles"], (m) => problems.push(`roles: ${m}`));
+  checkRoles(roles, vars, fileRules, problems);
+  checkConditions(vars, files, fileRules, problems);
   if (problems.length > 0) throw new DocuconfDeclarationError(problems);
-  return { name: typeof metadata["name"] === "string" ? metadata["name"] : undefined, vars, files, profiles, overlays };
+  return { name: typeof metadata["name"] === "string" ? metadata["name"] : undefined, vars, files, profiles, overlays, roles, includes, fileRules };
+}
+
+/** `includes` (SPEC §4.8): fragment names, `name@major`, none twice. */
+function readIncludes(given: unknown, problems: string[]): string[] {
+  if (given === undefined) return [];
+  if (!Array.isArray(given) || !given.every((x) => typeof x === "string")) {
+    problems.push("includes must be a list of fragment names, such as otel@1");
+    return [];
+  }
+  const out: string[] = [];
+  for (const name of given as string[]) {
+    if (!FRAGMENT_REF.test(name)) problems.push(`includes: ${JSON.stringify(name)} is not a fragment name, name@major`);
+    else if (out.includes(name)) problems.push(`includes: ${name} is listed twice`);
+    else out.push(name);
+  }
+  return out;
+}
+
+/** A list of roles (SPEC §4.9): DNS labels, at least one, none twice. */
+function readRoles(given: unknown, problem: (m: string) => void): string[] | undefined {
+  if (given === undefined) return undefined;
+  if (!Array.isArray(given) || given.length === 0 || !given.every((x) => typeof x === "string")) {
+    problem("roles must be a list of at least one role name");
+    return undefined;
+  }
+  const roles = given as string[];
+  roles.forEach((r, i) => {
+    if (!ROLE_NAME.test(r)) problem(`role ${JSON.stringify(r)} must be a DNS label`);
+    else if (roles.indexOf(r) < i) problem(`role ${r} is listed twice`);
+  });
+  return [...roles];
+}
+
+/** `requiredIf: {VAR: value}` (SPEC §4.2.1): one variable and a string, integer or boolean. */
+function readRequiredIf(given: unknown, problem: (m: string) => void): RequiredIf | undefined {
+  if (given === undefined) return undefined;
+  if (!isObject(given) || Object.keys(given).length !== 1) {
+    problem("requiredIf must name one variable and its value: {VAR: value}");
+    return undefined;
+  }
+  const [name, value] = Object.entries(given)[0]!;
+  const ok = typeof value === "string" || typeof value === "boolean" || isInt(value) || typeof value === "bigint";
+  if (!ENV_NAME.test(name) || !ok) {
+    problem("requiredIf must name one variable and a string, integer or boolean value");
+    return undefined;
+  }
+  return new RequiredIf(name, typeof value === "bigint" ? narrowInt(value) : value);
+}
+
+/** The inputs' roles against the contract's (SPEC §4.9), and DOCUCONF_ROLE: a required enum of exactly the roles. */
+function checkRoles(
+  roles: readonly string[] | undefined,
+  vars: ReadonlyMap<string, ContractVar>,
+  fileRules: Readonly<Record<string, ContractFileRules>>,
+  problems: string[],
+): void {
+  const inputs: Array<[string, readonly string[] | undefined]> = [
+    ...[...vars.values()].map((v): [string, readonly string[] | undefined] => [v.name, v.roles]),
+    ...Object.entries(fileRules).map(([n, r]): [string, readonly string[] | undefined] => [`files.${n}`, r.roles]),
+  ];
+  for (const [what, used] of inputs) {
+    if (used === undefined) continue;
+    if (roles === undefined) {
+      problems.push(`${what}: has roles, but the contract declares none`);
+      continue;
+    }
+    for (const r of used) if (!roles.includes(r)) problems.push(`${what}: role ${r} is not one of the contract's roles, ${roles.join(", ")}`);
+  }
+  if (roles === undefined) return;
+  const role = vars.get(ROLE_VAR);
+  const same = role?.values !== undefined && role.values.length === roles.length && role.values.every((x, i) => x === roles[i]);
+  if (!role || role.type !== "enum" || !role.required || role.roles !== undefined || !same) {
+    problems.push(`${ROLE_VAR}: a contract with roles declares it as a required enum whose values are the roles, ${roles.join(", ")}, used by every role`);
+  }
+}
+
+/**
+ * Each input's requiredIf against the variables (SPEC §4.2.1): the condition
+ * names another variable, a plain string, int, bool or enum one, with a value
+ * it can hold; the input is not required, has no default and is not deprecated.
+ */
+function checkConditions(
+  vars: ReadonlyMap<string, ContractVar>,
+  files: Readonly<Record<string, FileInput>>,
+  fileRules: Readonly<Record<string, ContractFileRules>>,
+  problems: string[],
+): void {
+  const inputs = [
+    ...[...vars.values()].map((v) => ({
+      what: v.name,
+      name: v.name,
+      condition: v.requiredIf,
+      required: v.required,
+      hasDefault: v.contract["default"] !== undefined,
+      deprecated: v.deprecated !== undefined,
+    })),
+    ...Object.entries(fileRules).map(([name, r]) => ({
+      what: `files.${name}`,
+      name,
+      condition: r.requiredIf,
+      required: files[name]?.options.required === true,
+      hasDefault: false,
+      deprecated: files[name]?.options.deprecated !== undefined,
+    })),
+  ];
+  for (const { what, name, condition, required, hasDefault, deprecated } of inputs) {
+    if (condition === undefined) continue;
+    const p = (m: string) => problems.push(`${what}: ${m}`);
+    if (required) p("an input with requiredIf must not be required");
+    if (hasDefault) p("an input with requiredIf must not have a default");
+    if (deprecated) p("an input with requiredIf must not be deprecated: the platform could not stop setting it");
+    const on = vars.get(condition.variable);
+    if (condition.variable === name || on === undefined) {
+      p(`requiredIf must name another declared variable, not ${condition.variable}`);
+      continue;
+    }
+    if (on.secret || !["string", "int", "bool", "enum"].includes(on.type)) {
+      p(`requiredIf names ${on.name}, which is not a plain string, int, bool or enum variable`);
+      continue;
+    }
+    const x = condition.value;
+    const sameType = on.type === "int" ? typeof x === "number" || typeof x === "bigint" : on.type === "bool" ? typeof x === "boolean" : typeof x === "string";
+    const typed = sameType ? typedValue(on, x) : undefined;
+    if (typed === undefined || "problem" in typed) {
+      p(`requiredIf: ${condition.toString()} is not a value ${on.name} can have${typed && "problem" in typed ? `: ${typed.problem}` : ""}`);
+    }
+  }
 }
 
 function readVar(name: string, given: unknown, problem: (m: string) => void): ContractVar | undefined {
@@ -180,6 +369,9 @@ function readVar(name: string, given: unknown, problem: (m: string) => void): Co
   const v: ContractVar = { name, type, secret: flag("secret"), required: flag("required"), contract: raw, int64: true };
   for (const m of deprecatedProblems(raw["deprecated"], v.required)) problem(m);
   if (isObject(raw["deprecated"])) v.deprecated = raw["deprecated"] as ContractVar["deprecated"];
+  // Read before unbig: an int condition keeps its exact value.
+  v.requiredIf = readRequiredIf(given["requiredIf"], problem);
+  v.roles = readRoles(raw["roles"], problem);
   const opt = <T>(k: string, ok: (x: unknown) => x is T, what: string): T | undefined => {
     const x = raw[k];
     if (x === undefined) return undefined;
@@ -369,7 +561,12 @@ function jsonKind(x: unknown): string {
 }
 
 /** File inputs, as contract fields (SPEC §4.6), turned into FileInputs that loadFile reads. */
-function readFiles(given: unknown, vars: ReadonlyMap<string, ContractVar>, problems: string[]): Record<string, FileInput> {
+function readFiles(
+  given: unknown,
+  vars: ReadonlyMap<string, ContractVar>,
+  rules: Record<string, ContractFileRules>,
+  problems: string[],
+): Record<string, FileInput> {
   if (given === undefined) return {};
   if (!isObject(given)) {
     problems.push("files must be an object");
@@ -398,6 +595,7 @@ function readFiles(given: unknown, vars: ReadonlyMap<string, ContractVar>, probl
       if (!(re instanceof RegExp)) p(`pattern: ${re.problem}`);
     }
     if (type === "config" && f["format"] === undefined) p("needs a format");
+    rules[name] = { requiredIf: readRequiredIf(raw["requiredIf"], p), roles: readRoles(f["roles"], p) };
     files[name] = makeFileInput(type, f);
   }
   // The declaration checks every SDK makes: names, paths, mount rules, passwordVar.
@@ -737,7 +935,14 @@ function runContract(
   decl: ContractDeclaration,
   env: Readonly<Record<string, string | undefined>>,
   opts: ContractCheckOptions,
-): { values: Record<string, unknown>; loaded: Record<string, Loaded>; ctx: LoadContext; violations: Violation[]; warnings: string[] } {
+): {
+  values: Record<string, unknown>;
+  loaded: Record<string, Loaded>;
+  files: Record<string, FileInput>;
+  ctx: LoadContext;
+  violations: Violation[];
+  warnings: string[];
+} {
   const values: Record<string, unknown> = {};
   const violations: Violation[] = [];
   const warnings: string[] = [];
@@ -750,7 +955,15 @@ function runContract(
   violations.push(...layered.violations);
   const jsonCheck = opts.validateJson ?? schemaJsonCheck;
 
-  for (const [name, v] of decl.vars) {
+  // Roles (SPEC §4.9): an input that only other roles use is optional here.
+  // With no role, or one the contract does not declare, every role-specific
+  // input is optional, so the role is the one problem reported.
+  const named = env[ROLE_VAR];
+  const role = decl.roles !== undefined && named !== undefined && decl.roles.includes(named) ? named : undefined;
+  const inRole = (used: readonly string[] | undefined) => used === undefined || (role !== undefined && used.includes(role));
+
+  for (const [name, declared] of decl.vars) {
+    const v = declared.required && !inRole(declared.roles) ? { ...declared, required: false } : declared;
     const report = new VarReport(v);
     values[name] = undefined;
     const raw = rawValue(v, env);
@@ -783,16 +996,39 @@ function runContract(
     violations.push(...report.violations);
   }
 
+  // Conditional requirements (SPEC §4.2.1), on the condition variables'
+  // loaded values: the environment, an overlay, the selected profile or the
+  // default. A condition variable with a violation has no value, so it makes
+  // nothing required.
+  const requiredWhen = (condition: RequiredIf | undefined, used: readonly string[] | undefined) =>
+    condition !== undefined && inRole(used) && condition.holdsFor(values[condition.variable]) ? condition.toString() : undefined;
+  const reported = new Set(violations.map((x) => x.input));
+  for (const [name, v] of decl.vars) {
+    const when = requiredWhen(v.requiredIf, v.roles);
+    if (when !== undefined && values[name] === undefined && !reported.has(name)) {
+      violations.push({ input: name, kind: "var", code: "missing_required", message: `is required when ${when}` });
+    }
+  }
+
+  // The file inputs as this boot requires them.
+  const files: Record<string, FileInput> = {};
+  for (const [name, input] of Object.entries(decl.files)) {
+    const rules = decl.fileRules?.[name];
+    const when = requiredWhen(rules?.requiredIf, rules?.roles);
+    const required = inRole(rules?.roles) && (input.options.required === true || when !== undefined);
+    files[name] = required === (input.options.required === true) && when === undefined ? input : makeFileInput(input.type, { ...input.options, required, requiredWhen: when });
+  }
+
   const ctx: LoadContext = { env: { ...env }, values, root, adapter: contractSchemaAdapter };
   const loaded: Record<string, Loaded> = {};
-  for (const [name, input] of Object.entries(decl.files)) {
+  for (const [name, input] of Object.entries(files)) {
     const r = loadFile(name, input, ctx, opts.now);
     loaded[name] = r;
     violations.push(...r.violations);
     const dep = input.options.deprecated;
     if (dep && r.value !== undefined && r.violations.length === 0) warn(deprecatedWarning(name, dep));
   }
-  return { values, loaded, ctx, violations, warnings };
+  return { values, loaded, files, ctx, violations, warnings };
 }
 
 /** Parses one present value and checks its constraints; undefined after reporting a violation. */
@@ -852,9 +1088,9 @@ export function loadContract<T extends Record<string, unknown> = Record<string, 
 ): T {
   const onWarning = opts.onWarning ?? ((m: string) => console.warn(`docuconf: ${m}`));
   const decl = isDeclaration(contract) ? contract : parseContract(contract);
-  const { values, loaded, ctx, violations } = runContract(decl, opts.env ?? process.env, { ...opts, onWarning });
+  const { values, loaded, files, ctx, violations } = runContract(decl, opts.env ?? process.env, { ...opts, onWarning });
   if (violations.length > 0) failBoot(violations, opts);
-  const state = new FileState(decl.files, ctx);
+  const state = new FileState(files, ctx);
   const result: Record<string, unknown> = { ...values };
   for (const [name, r] of Object.entries(loaded)) {
     state.seed(name, r);
