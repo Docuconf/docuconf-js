@@ -1,0 +1,13 @@
+{
+  // Builds against the workspace packages' dist, as an app would.
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false,
+    "customConditions": []
+  },
+  "include": ["src"]
+}

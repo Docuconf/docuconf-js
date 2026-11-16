@@ -106,16 +106,31 @@ jobs:
             cp "examples/$ex/contract.cue" "docuconf-go/spec/cue/$ex/"
             (cd docuconf-go/spec/cue && cue vet -c "./$ex")
           done
+      # The shop example is contract-first: contract.cue is written by hand and
+      # the app loads contract.json. Both must pass the meta-schema and, with
+      # its defaults filled in, be the same contract.
+      - name: Check the shop example's contract
+        run: |
+          mkdir -p docuconf-go/spec/cue/shop docuconf-go/spec/cue/shop-json
+          cp examples/shop/contract.cue docuconf-go/spec/cue/shop/
+          cp examples/shop/contract.json docuconf-go/spec/cue/shop-json/
+          printf 'package shop\n\nimport "docuconf.dev/contract"\n\ncontract.#Contract\n' > docuconf-go/spec/cue/shop-json/schema.cue
+          cd docuconf-go/spec/cue
+          cue vet -c ./shop
+          (cd shop-json && cue vet -c schema.cue contract.json)
+          diff -u --label contract.cue --label contract.json \
+            <(cue export ./shop --out json | jq -S .) \
+            <(cd shop-json && cue export schema.cue contract.json --out json | jq -S .)
       # Every example's CONFIG.md, CONFIG.agents.md and docs.json are
       # generated from its contract.cue by docuconf docs, built from the
       # docuconf-go checkout above; they must match what it writes today.
       # These are the examples' README commands.
       - name: Generated docs are up to date
         run: |
-          # The step above re-exports contract.cue in place; check the docs
+          # The orders step re-exports contract.cue in place; check the docs
           # against the committed contracts (and their generator.version).
           git checkout -- examples/*/contract.cue
-          for ex in orders-t3 orders-nestjs next-t3 t3 nestjs; do
+          for ex in orders-t3 orders-nestjs next-t3 t3 nestjs shop; do
             (
               cd "examples/$ex"
               "$RUNNER_TEMP/docuconf" docs contract.cue --check CONFIG.md
@@ -128,6 +143,8 @@ jobs:
       # each orders example's smoke.sh: start it with valid env and check
       # /healthz and /config; start it with PORT=0 and no DATABASE_URL and
       # check it fails with missing_required and out_of_range.
+      # Then the shop example's smoke.sh: matrix cases 1, 2 and 6 as a real
+      # process, checking its output and exit status.
       - run: npm run smoke
       # The Next.js example, as a user installs it: the packed packages with
       # Next.js in a temporary copy. next build without server configuration,
