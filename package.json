@@ -9,7 +9,8 @@
     "packages/t3",
     "packages/nestjs",
     "examples/orders-t3",
-    "examples/orders-nestjs"
+    "examples/orders-nestjs",
+    "examples/shop"
   ],
   "scripts": {
     "build": "npm run build --workspaces",

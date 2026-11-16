@@ -6,8 +6,9 @@ exports your declaration as a CUE contract, and validates the real environment a
 
 Documentation: [docuconf.dev](https://docuconf.dev) · [TypeScript guide](https://docuconf.dev/languages/typescript/) · [NestJS guide](https://docuconf.dev/languages/nestjs/)
 
-**Examples:** the orders service [with T3 Env](examples/orders-t3/) and [with NestJS](examples/orders-nestjs/), and a
-[Next.js app](examples/next-t3/) that validates at server start and shares `env.ts` with client components.
+**Examples:** the orders service [with T3 Env](examples/orders-t3/) and [with NestJS](examples/orders-nestjs/), a
+[Next.js app](examples/next-t3/) that validates at server start and shares `env.ts` with client components, and the
+[shop](examples/shop/): roles, `requiredIf` and an included fragment, loaded contract-first.
 
 The packages are not on npm yet. Each SDK's README starts with how to install it from a checkout (`npm pack`, then
 `npm install` of the tarballs); `npm install @docuconf/t3` and `npm install @docuconf/nestjs` work from the first release.
@@ -34,6 +35,7 @@ packages/t3             @docuconf/t3      ESM (CommonJS apps load it with requir
 packages/nestjs         @docuconf/nestjs  ESM + CommonJS
 examples/orders-t3      the orders example: a Node http service with T3 Env (workspace member)
 examples/orders-nestjs  the orders example: a NestJS app (workspace member)
+examples/shop           the shop example: roles, requiredIf and otel@1, contract-first (workspace member)
 examples/next-t3        a Next.js app (not a workspace member: its smoke.sh installs the packed packages)
 examples/t3             test fixture: an HTTPS server with file inputs, against the t3 sources
 examples/nestjs         test fixture: a NestJS app with file inputs
@@ -53,8 +55,8 @@ through the `@docuconf/source` export condition (`customConditions` in `tsconfig
 npm ci
 npm run typecheck   # every package
 npm test            # every package's tests (vitest projects); vets exported contracts with cue when installed
-npm run build       # core first, then the SDKs, then the orders examples
-npm run smoke       # installs the packed packages into clean projects; runs the orders examples' smoke.sh
+npm run build       # core first, then the SDKs, then the orders and shop examples
+npm run smoke       # installs the packed packages into clean projects; runs the orders and shop examples' smoke.sh
 bash examples/next-t3/smoke.sh   # the Next.js example: installs Next.js and the packed packages in a temporary copy
 ```
 
