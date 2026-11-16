@@ -4,6 +4,11 @@
  *
  * cases.json comes from DOCUCONF_CONFORMANCE, else ../docuconf-go/conformance/cases.json
  * next to this repository. With DOCUCONF_REQUIRE_CONFORMANCE=1 a missing file fails.
+ *
+ * cases.pending.json, next to cases.json, holds the cases of features not
+ * every SDK has yet. It runs the same way, except that a case with a tag
+ * this SDK does not know is skipped without failing, and a missing file
+ * skips the whole pending run.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,7 +22,18 @@ import { DocuconfValidationError, KeySet, formatSignedDuration, jsonText, loadCo
  * any other tag, including one added to the suite after this list was
  * written, is skipped, never run (SPEC §12). CI requires 0 skipped.
  */
-const SUPPORTED = new Set<string>(["int64", "json-schema", "key-set", "deprecated", "strict-parsing", "files", "profiles", "overlays"]);
+const SUPPORTED = new Set<string>([
+  "int64",
+  "json-schema",
+  "key-set",
+  "deprecated",
+  "strict-parsing",
+  "files",
+  "profiles",
+  "overlays",
+  "required-if",
+  "roles",
+]);
 
 type FileContent = { text: string } | { base64: string };
 
@@ -40,6 +56,7 @@ const fromEnv = process.env["DOCUCONF_CONFORMANCE"];
 const casesPath = fromEnv ? resolve(fromEnv) : resolve(repoRoot, "../docuconf-go/conformance/cases.json");
 const required = process.env["DOCUCONF_REQUIRE_CONFORMANCE"] === "1";
 const found = existsSync(casesPath);
+const pendingPath = join(dirname(casesPath), "cases.pending.json");
 
 /** An input's typed value as the case's JSON writes it (conformance/README.md, step 3). */
 function asJson(c: Case, name: string, value: unknown): unknown {
@@ -91,21 +108,32 @@ describe.runIf(found || required)("conformance suite", () => {
   it("finds cases.json", () => {
     expect(found, `cases.json not found at ${casesPath}; set DOCUCONF_CONFORMANCE`).toBe(true);
   });
-  if (!found) return;
+  if (found) runSuite("conformance", casesPath, true);
+});
 
-  const suite = parseJsonExact(readFileSync(casesPath, "utf8")) as { version: number; cases: Case[] };
+// Pending cases (SPEC §12): those of a feature this SDK has must pass; an unknown tag skips the case, never fails it.
+const pendingFound = existsSync(pendingPath);
+describe.runIf(pendingFound)("pending conformance cases", () => {
+  if (pendingFound) runSuite("conformance (pending)", pendingPath, false);
+});
+
+/** Registers one test per case of a suite file; `strict` also fails when a case is skipped. */
+function runSuite(label: string, path: string, strict: boolean): void {
+  const suite = parseJsonExact(readFileSync(path, "utf8")) as { version: number; cases: Case[] };
   const unsupported = (c: Case) => c.requires.filter((t) => !SUPPORTED.has(t));
   const skipped = suite.cases.filter((c) => unsupported(c).length > 0);
   const dir = mkdtempSync(join(tmpdir(), "docuconf-conformance-"));
   afterAll(() => {
     rmSync(dir, { recursive: true, force: true });
     const tags = [...new Set(skipped.flatMap(unsupported))].sort();
-    console.log(`conformance: ${suite.cases.length - skipped.length} run, ${skipped.length} skipped${tags.length ? ` (requires ${tags.join(", ")})` : ""}`);
+    console.log(`${label}: ${suite.cases.length - skipped.length} run, ${skipped.length} skipped${tags.length ? ` (requires ${tags.join(", ")})` : ""}`);
   });
 
-  it("skips no case", () => {
-    expect(skipped.map((c) => `${c.id} (requires ${unsupported(c).join(", ")})`)).toEqual([]);
-  });
+  if (strict) {
+    it("skips no case", () => {
+      expect(skipped.map((c) => `${c.id} (requires ${unsupported(c).join(", ")})`)).toEqual([]);
+    });
+  }
 
   it("reads version 1", () => {
     expect(suite.version).toBe(1);
@@ -156,4 +184,4 @@ describe.runIf(found || required)("conformance suite", () => {
       }
     });
   });
-});
+}

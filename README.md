@@ -80,9 +80,13 @@ DOCUCONF_CONFORMANCE=../docuconf-go/conformance/cases.json DOCUCONF_REQUIRE_CONF
 ```
 
 Capability tags skipped: **none**. The runner keeps an allow-list of the tags this SDK supports, which is every tag in
-the suite: `int64`, `json-schema`, `key-set`, `deprecated`, `strict-parsing`, `files`, `profiles` and `overlays`. A case
-with any other tag, such as one added to the suite later, is skipped, never run (SPEC §12), and the suite fails if any
-case is skipped, so CI fails too.
+the suite: `int64`, `json-schema`, `key-set`, `deprecated`, `strict-parsing`, `files`, `profiles`, `overlays`,
+`required-if` and `roles`. A case with any other tag, such as one added to the suite later, is skipped, never run
+(SPEC §12), and the suite fails if any case is skipped, so CI fails too.
+
+The runner also runs `cases.pending.json`, next to `cases.json`: the cases of features not every SDK has yet. A pending
+case whose tags this SDK supports must pass; one with a tag it does not know is skipped without failing, and the
+pending run is skipped when the file does not exist.
 
 - `int64`: contract-first mode returns an `int` (or an int list item) as a `number` within ±`Number.MAX_SAFE_INTEGER`
   and as an exact `bigint` beyond it, up to the signed 64-bit range, and compares bounds exactly.
@@ -98,6 +102,9 @@ case is skipped, so CI fails too.
   and `toml`, TLS key pairs, CA bundles, PKCS#12 keystores (through Node's OpenSSL) and text files.
 - `profiles` and `overlays`: contract-first mode layers the base default, the profile, the overlay and the environment.
   The SDKs' declaration APIs have neither: Node does not layer configuration files.
+- `required-if` and `roles` (pending cases): contract-first mode requires an input with `requiredIf` while its condition
+  variable's loaded value is the condition's value, and narrows the required inputs to the role in `DOCUCONF_ROLE`. The
+  SDKs' declaration APIs do not declare either yet.
 
 For each case the runner writes the case's files into a new temporary directory and loads with `DOCUCONF_FILE_ROOT` set
 to it. The SDKs' export is checked against the shared fixture too: `packages/t3/test/fixtures/conformance-fixture.ts`

@@ -138,8 +138,10 @@ export function loadFile(name: string, input: FileInput, ctx: LoadContext, now =
   const required = o.required === true;
   // Outside a cluster the platform's mounts do not exist; say how to point at local copies.
   const hint = ctx.root === undefined && isAbsolute(path) ? " (for local development, set DOCUCONF_FILE_ROOT)" : "";
+  // Contract-first mode marks an input that is required only by its requiredIf condition (SPEC §4.2.1).
+  const when = typeof o["requiredWhen"] === "string" ? `, and is required when ${o["requiredWhen"]}` : "";
   const missing = (what: string): Loaded => {
-    if (required) report("file_missing", `${what} not found${hint}`);
+    if (required) report("file_missing", `${what} not found${hint}${when}`);
     return { value: undefined, violations };
   };
 

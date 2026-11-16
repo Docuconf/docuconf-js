@@ -69,6 +69,23 @@ stands for and checked like an env value; a missing overlay is fine, and one tha
 is `file_malformed` for the overlay's name. A **deprecated** input that is set loads and is checked as usual, and is
 logged through `onWarning` with its name and message, never its value.
 
+A **conditional requirement** (`requiredIf: {VAR: value}`, SPEC §4.2.1), on a variable or a file input, makes the input
+required while `VAR`'s loaded value (the environment, an overlay, the selected profile's default or the variable's
+default) equals `value`. A missing variable is then `missing_required` with the condition in the message,
+`is required when TLS_ENABLED is true`, the value written as JSON (`LOG_FORMAT is "json"`); a missing file is
+`file_missing`, its message ending `, and is required when TLS_ENABLED is true`. A condition variable with a violation
+of its own has no value, so it makes nothing required. The condition must name another declared variable, of type
+`string`, `int`, `bool` or `enum` and not secret, with a value it can hold, and the input must not be required, have a
+default or be deprecated; otherwise `parseContract` throws a `DocuconfDeclarationError`.
+
+With **roles** (SPEC §4.9), an input that lists `roles` is required only in those roles. The role is `DOCUCONF_ROLE`
+when it is one of the contract's roles; without a valid role, every role-specific input is optional, so the missing or
+unknown role (`missing_required`, `not_in_enum`) is the one problem reported. The contract's `roles` are DNS labels, at
+least one, none twice; an input's roles must be among them, and `DOCUCONF_ROLE` must be a required `enum` whose values
+are the roles, with no `roles` of its own. A contract's **included fragments** (`includes`, SPEC §4.8) carry their
+variables inline, so they load like any other; `parseContract` checks the list (`name@major`, none twice) and returns
+it as `includes`, beside `roles`.
+
 ### Reloading file inputs
 
 A file input declared `reload: "watch"` is re-read when its mount directory changes (Kubernetes swaps a `..data`
